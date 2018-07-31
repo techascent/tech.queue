@@ -1,4 +1,4 @@
-(defproject tech.queue "0.1.0-SNAPSHOT"
+(defproject techascent/tech.queue "0.1.0-SNAPSHOT"
   :description "Queue abstraction with bindings at least to filesystem and amazon sqs."
   :url "http://github.com:tech-ascent/tech.queue"
   :license {:name "Eclipse Public License"
@@ -12,6 +12,8 @@
                                com.amazonaws/dynamodb-streams-kinesis-adapter]]
                  [com.amazonaws/aws-java-sdk-core "1.11.341"]
                  [com.amazonaws/aws-java-sdk-sqs "1.11.341"]
+                 ;;sqs relies on the encryption client builder in s3
+                 [com.amazonaws/aws-java-sdk-s3 "1.11.341"]
                  [com.fasterxml.jackson.dataformat/jackson-dataformat-cbor "2.9.0"]
                  [com.fasterxml.jackson.core/jackson-databind "2.9.0"]
                  [com.taoensso/timbre "4.10.0"]
@@ -19,5 +21,6 @@
                  [com.stuartsierra/component "0.3.2"]
                  [cheshire "5.8.0"]
                  [thinktopic/think.parallel "0.3.7"]
-                 [factual/durable-queue "0.1.6" :exclusions [com.taoensso/nippy
-                                                             primitive-math]]])
+                 [factual/durable-queue "0.1.6" :exclusions [com.taoensso/nippy]]
+                 [com.taoensso/nippy "2.14.0"]
+                 [me.raynes/fs "1.4.6"]])
