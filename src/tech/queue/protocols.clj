@@ -4,7 +4,7 @@
 
 (defprotocol QueueProvider
   (get-or-create-queue! [this queue-name options])
-  (delete-queue! [this queue-name]))
+  (delete-queue! [this queue-name options]))
 
 
 (defprotocol QueueProtocol
@@ -12,7 +12,7 @@
   (take! [this options]
     "take should return the value :timeout *if* the receive has timed out.
 Else it should return the next task in the queue")
-  (task->msg [this task options])
+  (task->msg [this task])
   (msg->birthdate [this msg])
   (complete! [this task options])
   (stats [this options]))

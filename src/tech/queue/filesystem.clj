@@ -2,7 +2,9 @@
   (:require [durable-queue :as durable]
             [com.stuartsierra.component :as c]
             [me.raynes.fs :as fs]
-            [tech.queue.protocols :as q])
+            [tech.queue.protocols :as q]
+            [tech.io.temp-file :as temp-file]
+            [tech.io.url :as url])
   (:import [java.util Date UUID]))
 
 
@@ -12,17 +14,17 @@
       (.replace "-" "_")))
 
 
-(defrecord DurableQueue [queue-obj queue-name queue-options]
+(defrecord DurableQueue [queue-obj queue-name default-options]
   q/QueueProtocol
   (put! [this msg options]
     (durable/put! queue-obj queue-name (merge {::q/birthdate (Date.)}
                                                msg)))
   (take! [this options]
     (durable/take! queue-obj queue-name
-             (* 1000 (get queue-options
-                          :receive-message-wait-time-seconds))
-             :timeout))
-  (task->msg [this task options] @task)
+                   (* 1000 (get (merge default-options options)
+                                :receive-message-wait-time-seconds))
+                   :timeout))
+  (task->msg [this task] @task)
   (msg->birthdate [this msg] (::q/birthdate msg))
   (complete! [this task options]
     (durable/complete! task))
@@ -50,7 +52,7 @@
                                                                create-options)))
         (get @*queues queue-name))))
 
-  (delete-queue! [this queue-name]))
+  (delete-queue! [this queue-name options] (throw (ex-info "Unimplemented" {}))))
 
 
 (defn provider
@@ -62,28 +64,37 @@
 
 
 ;;Deletes the queue directory on shutdown.
-(defrecord TemporaryDurableQueueProvider [temp-dir]
+(defrecord TemporaryDurableQueueProvider [temp-dir default-options]
   c/Lifecycle
-  (start [this] this)
+  (start [this]
+    (if (:started? this)
+      this
+      (do
+        (fs/mkdirs temp-dir)
+        (assoc this
+               :started? true
+               :provider (provider temp-dir default-options)))))
+
 
   (stop [this]
-    (when (:temp-dir this)
-      (fs/delete-dir (:temp-dir this))
-      (dissoc this :provider)))
+    (if-not (:started? this)
+      this
+      (do
+        (fs/delete-dir temp-dir)
+        (dissoc this :started? :provider))))
 
   q/QueueProvider
-  (get-or-create-queue! [this queue-name create-options]
-    (q/get-or-create-queue! (get this :provider) queue-name create-options))
+  (get-or-create-queue! [this queue-name options]
+    (q/get-or-create-queue! (get this :provider) queue-name (merge default-options options)))
 
-  (delete-queue! [this queue-name]
-    (q/delete-queue! (get this :provider) queue-name)))
+  (delete-queue! [this queue-name options]
+    (q/delete-queue! (get this :provider) queue-name (merge default-options options))))
 
 
 (defn temp-provider
-  [& {:keys [temp-dir-stem]
-      :or {temp-dir-stem "/tmp/test-queues/"}
+  [& {:keys [temp-dir]
       :as options}]
-  (let [temp-dir (str temp-dir-stem (UUID/randomUUID) "/")]
-    (fs/mkdir temp-dir)
-    (assoc (->TemporaryDurableQueueProvider temp-dir)
-           :provider (provider temp-dir options))))
+  (let [temp-dir (or temp-dir (-> (temp-file/random-file-url)
+                                  url/url->parts
+                                  url/parts->file-path))]
+    (assoc (->TemporaryDurableQueueProvider temp-dir options))))
