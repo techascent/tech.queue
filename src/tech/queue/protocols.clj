@@ -3,19 +3,19 @@
 
 
 (defprotocol QueueProvider
-  (get-or-create-queue! [this queue-name create-options])
+  (get-or-create-queue! [this queue-name options])
   (delete-queue! [this queue-name]))
 
 
 (defprotocol QueueProtocol
-  (put! [this msg])
-  (take! [this]
+  (put! [this msg options])
+  (take! [this options]
     "take should return the value :timeout *if* the receive has timed out.
 Else it should return the next task in the queue")
-  (task->msg [this task])
+  (task->msg [this task options])
   (msg->birthdate [this msg])
-  (complete! [this task])
-  (stats [this]))
+  (complete! [this task options])
+  (stats [this options]))
 
 
 (def default-create-options

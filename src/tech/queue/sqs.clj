@@ -20,16 +20,36 @@
          (s/join)
          keyword)))
 
+(def cred-map-keys #{:tech.aws/access-key :tech.aws/secret-key
+                     :tech.aws/session-token :tech.aws/endpoint})
 
-(defrecord SQSQueue [endpoint queue-url]
+(def queue-att-keys (set (keys q-proto/default-create-options)))
+
+
+(defn- filter-keys
+  [key-set data-map]
+  (when-let [item-seq (->> data-map
+                           (filter (comp key-set first))
+                           seq)]
+    (into {} item-seq)))
+
+(defn- call-aws-fn
+  [fn options & args]
+  (if-let [creds (filter-keys cred-map-keys options)]
+    (apply fn creds args)
+    (apply fn args)))
+
+
+(defrecord SQSQueue [default-options queue-url]
   q-proto/QueueProtocol
-  (put! [this msg]
-    (sqs/send-message {:endpoint endpoint}
+  (put! [this msg ]
+    (call-aws-fn sqs/send-message )
+    (sqs/send-message {:tech.aws/endpoint endpoint}
                       :queue-url queue-url
                       :message-body (pr-str (merge {::q-proto/birthdate (Date.)}
                                                    msg))))
   (take! [this]
-    (if-let [msg (-> (sqs/receive-message {:endpoint endpoint}
+    (if-let [msg (-> (sqs/receive-message {:tech.aws/endpoint endpoint}
                                           :queue-url queue-url
                                           :max-number-of-messages 1)
                      :messages
@@ -40,9 +60,9 @@
   (msg->birthdate [this task]
     (::q-proto/birthdate task))
   (complete! [this task]
-    (sqs/delete-message {:endpoint endpoint} (assoc task :queue-url queue-url)))
+    (sqs/delete-message {:tech.aws/endpoint endpoint} (assoc task :queue-url queue-url)))
   (stats [_]
-    (let [attributes (sqs/get-queue-attributes {:endpoint endpoint}
+    (let [attributes (sqs/get-queue-attributes {:tech.aws/endpoint endpoint}
                                                :queue-url queue-url
                                                :attribute-names ["All"])
           get-att #(Integer/parseInt
@@ -55,9 +75,9 @@
   [queue-name region create-options]
   (:queue-url
    (try
-     (sqs/get-queue-url {:endpoint region} queue-name)
+     (sqs/get-queue-url {:tech.aws/endpoint region} queue-name)
      (catch QueueDoesNotExistException e
-       (sqs/create-queue {:endpoint region}
+       (sqs/create-queue {:tech.aws/endpoint region}
                          :queue-name queue-name
                          :attributes (->> (merge q-proto/default-create-options
                                                  create-options)
@@ -70,19 +90,19 @@
   (str queue-prefix (name name-kwd)))
 
 
-(defrecord SQSQueueProvider [queue-prefix region *queues]
+(defrecord SQSQueueProvider [queue-prefix region *queues options]
   q-proto/QueueProvider
   (get-or-create-queue! [this queue-name create-options]
     (let [real-queue-name (queue-name->real-name queue-prefix queue-name)]
       (if-let [retval (get @*queues queue-name)]
         retval
-        (let [queue-url (get-or-create-queue! real-queue-name region (merge q-proto/default-create-options
+        (let [queue-url (get-or-create-queue! real-queue-name region (merge options
                                                                             create-options))
               retval (->SQSQueue region queue-url)]
           (swap! *queues assoc queue-name retval)
           retval))))
   (delete-queue! [this queue-name]
-    (sqs/delete-queue {:endpoint region} (queue-name->real-name queue-prefix queue-name))))
+    (sqs/delete-queue {:tech.aws/endpoint region} (queue-name->real-name queue-prefix queue-name))))
 
 
 (defn provider
