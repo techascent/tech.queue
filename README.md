@@ -1,5 +1,7 @@
 # tech.queue
 
+[![Clojars Project](https://clojars.org/techascent/tech.queue/latest-version.svg)](https://clojars.org/techascent/tech.queue)
+
 Simple queue abstraction.  Setup a queue/worker abstraction that will survive crashes and machine reboots.
 
 Choose either filesystem or sqs to back your queues.
