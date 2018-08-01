@@ -1,7 +1,12 @@
 # tech.queue
 
-Simple queue abstraction
+Simple queue abstraction.  Setup a queue/worker abstraction that will survive crashes and machine reboots.
 
+Choose either filesystem or sqs to back your queues.
+
+## Examples
+
+Please see [tests](test/tech/queue/worker_test.clj).
 
 ## License
 
