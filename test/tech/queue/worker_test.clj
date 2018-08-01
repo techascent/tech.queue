@@ -4,7 +4,8 @@
             [com.stuartsierra.component :as c]
             [tech.queue.worker :as qw]
             [tech.queue.protocols :as q]
-            [tech.queue.filesystem :as qf])
+            [tech.queue.filesystem :as qf]
+            [clojure.core.async :as async])
   (:import [java.util UUID]))
 
 
@@ -16,7 +17,6 @@
     (try
       (swap! *score + (:amount msg))
       (catch Throwable e
-        (println "Message was:" msg)
         (throw e)))
     {:status :success})
   (retire! [_ msg result] (swap! *retire-list conj [msg result])))
@@ -41,6 +41,18 @@
          (fs/delete-dir temp-dir#)))))
 
 
+(defn- delay-till-empty
+  [queue]
+  (let [result (async/alt!!
+                 (async/timeout 6000) :timeout
+                 (async/thread
+                   (->> (repeatedly #(do (Thread/sleep 200) (q/stats queue {})))
+                        (map :in-flight)
+                        (take-while #(> % 0))
+                        last)) :success)]
+    (is (= result :success))))
+
+
 (defn test-process-item
   [queue]
   (testing "Testing that basic processing works"
@@ -51,7 +63,7 @@
       (try
         (doseq [amt amounts]
           (q/put! queue {:amount amt} {}))
-        (Thread/sleep 3000)
+        (delay-till-empty queue)
         (is (= @(get processor :*score) (reduce + amounts)))
         (finally
           (c/stop worker))))))
@@ -74,7 +86,7 @@
       (try
         (doseq [amt amounts]
           (q/put! queue {:amount amt} {}))
-        (Thread/sleep 3000)
+        (delay-till-empty queue)
         ;;Due to lifetime limits (1 second isn't much time), it is possible that
         ;;one of the valid messages gets dropped.
         (is (<= @(get processor :*score) (reduce + (filter number? amounts))))
@@ -104,7 +116,7 @@
       (try
         (doseq [amt amounts]
           (q/put! queue {:amount amt} {}))
-        (Thread/sleep 3000)
+        (delay-till-empty queue)
         (is (= @(get processor :*score) 0))
         (is (= (count amounts)
                (count @(get processor :*retire-list))))

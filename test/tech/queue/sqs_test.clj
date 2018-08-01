@@ -13,9 +13,10 @@
 (defmacro with-temp-sqs-queue
   [& body]
   `(let [queue-prefix# (str "dev-" (uuid/random-uuid-str))
-         auth-provider# (c/start (auth/vault-aws-auth-provider "aws/sts/core"
-                                                            (sqs/provider queue-prefix# {:tech.aws/endpoint "us-west-2"})
-                                                            {}))
+         auth-provider# (c/start (auth/vault-aws-auth-provider
+                                  "aws/sts/core"
+                                  (sqs/provider queue-prefix# {:tech.aws/endpoint "us-west-2"})
+                                  {}))
          temp-provider# (c/start (sqs/temp-provider auth-provider#))
          ~'queue (q/get-or-create-queue! temp-provider# :test {})]
      (try
