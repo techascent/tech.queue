@@ -12,7 +12,7 @@ Please see [tests](test/tech/queue/worker_test.clj).
 
 ## License
 
-Copyright © 2018 FIXME
+Copyright © 2018 TechAscent, LLC.
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
