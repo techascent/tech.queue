@@ -77,7 +77,7 @@
         (Thread/sleep 3000)
         ;;Due to lifetime limits (1 second isn't much time), it is possible that
         ;;one of the valid messages gets dropped.
-        (is (< @(get processor :*score) (reduce + (filter number? amounts))))
+        (is (<= @(get processor :*score) (reduce + (filter number? amounts))))
         (is (= {:amount :b
                 :status :error}
                (let [[msg stat] (first @(get processor :*retire-list))]
