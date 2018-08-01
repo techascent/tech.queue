@@ -18,7 +18,7 @@
    {:service service-name}
    (loop []
      (try
-       (let [next-value (q/take! queue)]
+       (let [next-value (q/take! queue {})]
          (when-not (= :timeout next-value)
            (a/>!! write-channel next-value)))
        (catch Throwable e
@@ -69,8 +69,8 @@
         (if (< time-alive message-retry-period)
           (a/thread
             (do (a/<!! (a/timeout (* 1000 retry-delay-seconds)))
-                (q/put! queue msg)
-                (q/complete! queue next-item-task)))
+                (q/put! queue msg {})
+                (q/complete! queue next-item-task {})))
           (do
             (log/warn (format "Dropping message: birthdate %s, time-alive: %s, queue ttl seconds: %s"
                               msg-birthdate time-alive message-retry-period))
@@ -80,14 +80,14 @@
               ;;means that we have to fix the failure mode somehow.  We simply cannot lose
               ;;messages due to failure if they should be retired
               (q/retire! processor msg result)
-              (q/complete! queue next-item-task)
+              (q/complete! queue next-item-task {})
               (catch Throwable e
                 ;;Note the task won't be completed.  This means that we will get back around to
                 ;;it.
                 (log/error e))))))
       (do
         (log/info :processing-success)
-        (q/complete! queue next-item-task)))))
+        (q/complete! queue next-item-task {})))))
 
 
 (defmethod worker-process-item :thread-limited
@@ -163,10 +163,9 @@
        (log/warn :queue-worker-exit)))))
 
 
-(defrecord Worker [service processor-fn! queue thread-count
+(defrecord Worker [service processor queue thread-count
                    timeout-ms message-retry-period retry-delay-seconds
-                   msg->ctx-fn core-limit
-                   core-mgr]
+                   core-limit core-mgr]
   c/Lifecycle
   (start [this]
     (if-not (contains? this :ctl-ch)
@@ -199,3 +198,21 @@
 (def worker-defaults
   {:message-retry-period (time/hours->seconds 2)
    :retry-delay-seconds (time/minutes->seconds 5)})
+
+
+(defn worker
+  [service processor queue {:keys [thread-count
+                                   core-mgr
+                                   message-retry-period
+                                   retry-delay-seconds]
+                            :as args}]
+  (when (and thread-count core-mgr)
+    (throw (ex-info "Either thread count or core limit must be in effect" {:thread-count thread-count
+                                                                           :core-mgr core-mgr})))
+  (when-not (or thread-count core-mgr)
+    (throw (ex-info "Either thread count or core limit must be in effect; neither is defined" {})))
+  (map->Worker (merge worker-defaults
+                      {:service service
+                       :processor processor
+                       :queue queue}
+                      args)))

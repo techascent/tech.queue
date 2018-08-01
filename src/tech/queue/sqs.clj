@@ -20,8 +20,12 @@
          (s/join)
          keyword)))
 
-(def cred-map-keys #{:tech.aws/access-key :tech.aws/secret-key
-                     :tech.aws/session-token :tech.aws/endpoint})
+(def cred-map {:tech.aws/access-key :access-key
+               :tech.aws/secret-key :secret-key
+               :tech.aws/session-token :session-token
+               :tech.aws/endpoint :endpoint})
+
+(def cred-map-keys (set (keys cred-map)))
 
 (def queue-att-keys (set (keys q-proto/default-create-options)))
 
@@ -33,9 +37,20 @@
                            seq)]
     (into {} item-seq)))
 
+
+(defn- remap-keys
+  [remap-map data]
+  (when data
+    (->> data
+         (map (fn [[k v]]
+                [(remap-map k) v]))
+         (into {}))))
+
+
 (defn- call-aws-fn
   [fn options & args]
-  (if-let [creds (filter-keys cred-map-keys options)]
+  (if-let [creds (->> (filter-keys cred-map-keys options)
+                      (remap-keys cred-map))]
     (apply fn creds args)
     (apply fn args)))
 
@@ -115,41 +130,37 @@
   (->SQSQueueProvider queue-prefix (atom {}) options))
 
 
-(defrecord TempSQSQueueProvider [temp-queue-prefix default-options]
+(defrecord TempSQSQueueProvider [src-provider queue-set-atom]
   c/Lifecycle
   (start [this]
+    (when-not (:started? this)
+      (reset! queue-set-atom #{}))
     (assoc this :started? true))
   (stop [this]
     (when (:started? this)
-      (let [provider (get this :provider)]
-        (doseq [queue-name (keys @(get provider :*queues))]
-          (try
-            (q-proto/delete-queue! provider queue-name default-options)
-            ;;Ignore this error.  If we fire up multiple systems based on this provider
-            ;;then stop will get called multiple times leading to us trying to delete
-            ;;the same sqs queue multiple times.
-            (catch Throwable e
-              (println "queue delete failed-most likely not a problem" queue-name)
-              nil)))))
+      (doseq [queue-name @queue-set-atom]
+        (try
+          (q-proto/delete-queue! src-provider queue-name {})
+          ;;Ignore this error.  If we fire up multiple systems based on this provider
+          ;;then stop will get called multiple times leading to us trying to delete
+          ;;the same sqs queue multiple times.
+          (catch Throwable e
+            (println "queue delete failed-most likely not a problem" queue-name)
+            nil)))
+      (reset! queue-set-atom #{}))
     (dissoc this :started?))
 
   q-proto/QueueProvider
   (get-or-create-queue! [this queue-name options]
-    (q-proto/get-or-create-queue! (get this :provider) queue-name
-                                  (merge default-options
-                                         options)))
+    (let [retval (q-proto/get-or-create-queue! src-provider queue-name options)]
+      (swap! queue-set-atom conj queue-name)
+      retval))
 
   (delete-queue! [this queue-name options]
-    (q-proto/delete-queue! (get this :provider) queue-name
-                           (merge default-options
-                                  options))))
+    (q-proto/delete-queue! src-provider queue-name options)
+    (swap! queue-set-atom disj queue-name)))
 
 
 (defn temp-provider
-  [prefix options]
-  (let [temp-queue-prefix (str (or prefix
-                                   "dev-temp-queues")
-                               "-" (UUID/randomUUID) "-")]
-      (assoc (->TempSQSQueueProvider)
-             :temp-queue-prefix temp-queue-prefix
-             :provider (provider temp-queue-prefix options))))
+  [src-provider]
+  (->TempSQSQueueProvider src-provider (atom #{})))
