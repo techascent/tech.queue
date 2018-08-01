@@ -51,7 +51,8 @@
   [fn options & args]
   (if-let [creds (->> (filter-keys cred-map-keys options)
                       (remap-keys cred-map))]
-    (apply fn creds args)
+    (do
+      (apply fn creds args))
     (apply fn args)))
 
 

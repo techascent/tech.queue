@@ -9,6 +9,11 @@
                  [thinktopic/think.parallel "0.3.7"]
                  [factual/durable-queue "0.1.6" :exclusions [com.taoensso/nippy]]]
 
+  :plugins [[lein-environ "1.1.0"]]
 
-  :profiles {:dev {:dependencies [[techascent/vault-clj "0.2.17"]]}
-             :test {:dependencies [[techascent/vault-clj "0.2.17"]]}})
+  :profiles {:dev {:dependencies [[techascent/vault-clj "0.2.17"]]
+                   :env {:tech-queue-sqs-vault-auth "true"
+                         :tech-queue-vault-aws-path "aws/sts/core"}}
+             :test {:dependencies [[techascent/vault-clj "0.2.17"]]
+                    :env {:tech-queue-sqs-vault-auth "true"
+                          :tech-queue-vault-aws-path "aws/sts/core"}}})

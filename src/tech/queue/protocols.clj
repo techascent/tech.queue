@@ -59,3 +59,7 @@ last-attempt-result:
 (defprotocol PCoreLimit
   (core-count [this msg]
     "How many cores will this message take to process"))
+
+
+(defmulti url-parts->provider (fn [url-parts options]
+                                (:protocol url-parts)))
