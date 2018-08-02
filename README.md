@@ -4,7 +4,7 @@
 
 Simple queue abstraction.  Setup a queue/worker abstraction that will survive crashes and machine reboots.
 
-Choose either filesystem or sqs to back your [queues](src/tech/queue.clj).
+Choose either filesystem or sqs to back your *unordered* [queues](src/tech/queue.clj).
 
 ```clojure
 (q/put! "file://tmp/queue-a" {:data 1})
@@ -16,6 +16,8 @@ Choose either filesystem or sqs to back your [queues](src/tech/queue.clj).
 
 Also implemented is a worker abstraction that works with the component library and enables robust, 
 high volume processing of tasks in a system environment.
+
+There are no ordering guarantees made across queue systems at this time.
 
 ## Examples
 
