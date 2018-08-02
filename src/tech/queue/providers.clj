@@ -38,7 +38,7 @@
   (when-not (> (count (:path url-parts)) 1)
     (throw (ex-info "File queue urls must have a path greater than 1 part"
                     url-parts)))
-  (filesystem-provider (url/parts->file-path (butlast url-parts)) options))
+  (filesystem-provider (url/string-seq->file-path (butlast (:path url-parts))) options))
 
 
 (defmethod q-proto/url-parts->provider :sqs
