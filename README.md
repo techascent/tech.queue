@@ -4,7 +4,7 @@
 
 Simple queue abstraction.  Setup a queue/worker abstraction that will survive crashes and machine reboots.
 
-Choose either filesystem or sqs to back your queues.
+Choose either filesystem or sqs to back your [queues](src/tech/queue.clj).
 
 ```clojure
 (q/put! "file://tmp/queue-a" {:data 1})
@@ -19,7 +19,7 @@ high volume processing of tasks in a system environment.
 
 ## Examples
 
-Please see [queue-test](test/tech/queue-test.clj).
+Please see [queue-test](test/tech/queue_test.clj).
 
 For using the worker abstraction, please see [worker-test](test/tech/queue/worker_test.clj).
 
