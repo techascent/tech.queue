@@ -3,15 +3,15 @@
 to have different tasks take vastly different amounts of resources.
 Some may use a lot of ram but no cpu, etc.
 Resource limit is a generic way to limit the amount of resources the
-system can use assuming they can be statically defined before a particular
-task is finished.
+system can use assuming they can be statically defined task.
 
-On our case resources are represented by a number and as long as
+In our case resources are represented by an integer and as long as
 subtracting that number from the system's resources returns a result
 above or equal to zero we assume that those resources are available.
 
 A resource map can contain many entries of keyword->integer.
-  At manager creation time a similar map is provided indicating the initial state."
+
+At manager creation time a similar map is provided indicating the initial state."
   (:require [com.stuartsierra.component :as c]
             [clojure.core.async :as async]
             [taoensso.timbre :as log])
@@ -70,52 +70,6 @@ A resource map can contain many entries of keyword->integer.
        ~@body
        (finally
          (release-resources! ~mgr ~resource-map)))))
-
-
-(defn- release-resource-map
-  "Adds resources back to the current resource map"
-  [current-resources resource-map]
-  (reduce (fn [current-resources [res-name res-amount]]
-            (update current-resources res-name #(+ res-amount %)))
-          current-resources
-          resource-map))
-
-
-(defn- request-resource-map
-  "Request resources from map.  Returns nil upon failure."
-  [current-resources resource-map]
-  (when (every? #(>= (- (get current-resources (first %))
-                        (second %))
-                     0)
-                (seq resource-map))
-    (reduce (fn [current-resources [res-name res-amount]]
-              (update current-resources res-name #(- % res-amount)))
-            current-resources
-            resource-map)))
-
-
-(defn- store-resources
-  [boundary-map
-   current-resources
-   op]
-  (->> current-resources
-       (reduce (fn [boundary-map [map-key map-val]]
-                 (let [existing (get boundary-map map-key)]
-                   (assoc boundary-map map-key
-                          (if existing
-                            (op existing map-val)
-                            map-val))))
-               boundary-map)))
-
-
-(defn- store-min-resources
-  [min-resources current-resources]
-  (store-resources min-resources current-resources min))
-
-
-(defn- store-max-resources
-  [max-resources current-resources]
-  (store-resources max-resources current-resources max))
 
 
 (defn- check-resource-amounts!
