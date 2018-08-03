@@ -56,9 +56,14 @@ last-attempt-result:
 }"))
 
 
-(defprotocol PCoreLimit
-  (core-count [this msg]
-    "How many cores will this message take to process"))
+(defprotocol PResourceLimit
+  (resource-map [this msg]
+    "Resources this task needs.
+Map may be empty, or may contain whatever resources are defined in the
+resource manager.
+Default resources would be (resource-limit/default-resource-map):
+{:num-cores (integer)
+ :system-memory-MB (integer}"))
 
 
 (defmulti url-parts->provider (fn [url-parts options]

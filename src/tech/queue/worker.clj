@@ -4,7 +4,7 @@
             [taoensso.timbre :as log]
             [clojure.core.async.impl.protocols :as async-protocols]
             [think.parallel.core :as parallel]
-            [tech.queue.core-limit :as core-limit]
+            [tech.queue.resource-limit :as resource-limit]
             [tech.queue.logging :as logging]
             [tech.queue.protocols :as q]
             [tech.queue.time :as time])
@@ -46,8 +46,8 @@
   (cond
     (:thread-count worker)
     :thread-limited
-    (:core-mgr worker)
-    :core-limited))
+    (:resource-mgr worker)
+    :resource-limited))
 
 (defmulti worker-process-item
   (fn [worker & args]
@@ -115,19 +115,18 @@
        (handle-processed-msg worker next-item-task result)))))
 
 
-(defmethod worker-process-item :core-limited
+(defmethod worker-process-item :resource-limited
   [{:keys [processor queue name
            message-retry-period
            retry-delay-seconds
-           core-mgr] :as worker} next-item-task]
+           resource-mgr] :as worker} next-item-task]
   (let [msg (q/task->msg queue next-item-task)]
     (logging/merge-context
      (q/msg->log-context processor msg)
      (if-let [ready? (q/msg-ready? processor msg)]
-       (let [core-count (min (q/core-count processor msg)
-                             (:system-core-count core-mgr))]
+       (let [res-map (q/resource-map processor msg)]
          ;;Block here until we get the green light
-         (core-limit/request-cores core-mgr core-count)
+         (resource-limit/request-resources! resource-mgr res-map)
          (future
            (try
              (let [result (try
@@ -140,7 +139,7 @@
                    result (assoc result :msg (or (:msg result) msg))]
                (handle-processed-msg worker next-item-task result))
              (finally
-               (core-limit/release-cores core-mgr core-count)))))
+               (resource-limit/release-resources! resource-mgr res-map)))))
        (handle-processed-msg worker next-item-task {:status :not-ready?
                                                     :msg msg})))))
 
@@ -165,7 +164,7 @@
 
 (defrecord Worker [service processor queue thread-count
                    timeout-ms message-retry-period retry-delay-seconds
-                   core-limit core-mgr]
+                   core-limit resource-mgr]
   c/Lifecycle
   (start [this]
     (if-not (contains? this :ctl-ch)
@@ -202,14 +201,14 @@
 
 (defn worker
   [service processor queue {:keys [thread-count
-                                   core-mgr
+                                   resource-mgr
                                    message-retry-period
                                    retry-delay-seconds]
                             :as args}]
-  (when (and thread-count core-mgr)
+  (when (and thread-count resource-mgr)
     (throw (ex-info "Either thread count or core limit must be in effect" {:thread-count thread-count
-                                                                           :core-mgr core-mgr})))
-  (when-not (or thread-count core-mgr)
+                                                                           :resource-mgr resource-mgr})))
+  (when-not (or thread-count resource-mgr)
     (throw (ex-info "Either thread count or core limit must be in effect; neither is defined" {})))
   (map->Worker (merge worker-defaults
                       {:service service
