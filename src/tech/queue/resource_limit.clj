@@ -15,27 +15,30 @@ A resource map can contain many entries of keyword->integer.
   (:require [com.stuartsierra.component :as c]
             [clojure.core.async :as async]
             [taoensso.timbre :as log])
-  (:import [oshi SystemInfo]))
+  (:import [oshi SystemInfo]
+           [java.util.concurrent Semaphore]))
 
 
 (defprotocol PResourceManager
-  (request-resources! [mgr resource-map options]
+  (request-resources! [mgr resource-map]
     "potentially blocking call, returns when resources can be satisfied")
-  (release-resources! [mgr resource-map options]
+  (release-resources! [mgr resource-map]
     "nonblocking returns resources to the source"))
 
 
 (defn jvm-resources
   []
   {:num-cores (.availableProcessors (Runtime/getRuntime))
-   :jvm-free-space (.maxMemory (Runtime/getRuntime))})
+   :jvm-free-space-MB (/ (.maxMemory (Runtime/getRuntime))
+                         0x100000)})
 
 (defn system-resources
   []
   (let [si (SystemInfo.)
         hw (.getHardware si)
         gm (.getMemory hw)]
-    {:system-free-space (.getTotal gm)}))
+    {:system-free-space-MB (quot (.getTotal gm)
+                                 0x100000)}))
 
 
 (defn megabyte->byte
@@ -43,30 +46,30 @@ A resource map can contain many entries of keyword->integer.
   (* meg 0x100000))
 
 
-(defn gigabyte->byte
+(defn gigabyte->megabyte
   [^long gig]
-  (-> (* gig 1024)
-      megabyte->byte))
+  (* gig 1024))
 
 
 (defn default-resource-map
   [& {:keys [unavailable-system-mem]
-      :or {unavailable-system-mem (gigabyte->byte 1)}}]
+      :or {unavailable-system-mem (gigabyte->megabyte 1)}}]
   (let [system-map (system-resources)
         jvm-map (jvm-resources)
-        system-mem (long (:system-free-space system-map))]
+        system-mem (long (:system-free-space-MB system-map))]
     {:num-cores (:num-cores jvm-map)
-     :system-memory (max 0 (- system-mem unavailable-system-mem (:jvm-free-space jvm-map)))}))
+     :system-memory-MB (max 0 (- system-mem unavailable-system-mem
+                                 (:jvm-free-space-MB jvm-map)))}))
 
 
 (defmacro with-resources
   [mgr resource-map & body]
   `(do
-     (request-cores ~mgr ~resource-map)
+     (request-resources! ~mgr ~resource-map)
      (try
        ~@body
        (finally
-         (release-cores ~mgr ~resource-map)))))
+         (release-resources! ~mgr ~resource-map)))))
 
 
 (defn- release-resource-map
@@ -123,103 +126,55 @@ A resource map can contain many entries of keyword->integer.
                             (when-not (or (contains? initial-resources k)
                                           (> v (get initial-resources k))))))
                   seq)]
-    (throw (ex-info "Invalid resources, either not specified initially or larger than initial amounts"
+    (throw (ex-info "Invalid resources, either not specified initially or
+larger than initial amounts"
                     {:initial-resources initial-resources
                      :resource-request resource-map}))))
 
-
-(defn- resource-thread-loop
-  [current-resources* request-chan notify-chan]
-  (loop []
-    (let [continue? (try
-                      ;;Loop exits if this request chan closes.  Else it always recurs.
-                      (let [value (async/alt!!
-                                    request-chan ([result] result)
-                                    (async/timeout 50) :timeout
-                                    notify-chan :notify)]
-                        (cond
-                          (= value :timeout)
-                          true
-                          (= value :notify)
-                          true
-                          :else
-                          (when value
-                            (let [{:keys [resource-map result-chan]} value]
-                              ;;Inner loop exits when resources may be successfully allocated else
-                              ;;spins waiting for notification that resources were released.
-                              (loop [current-resources @current-resources*]
-                                (let [request-result (request-resource-map current-resources resource-map)]
-                                  (if (and request-result
-                                           (compare-and-set! current-resources* current-resources request-result))
-                                    (do
-                                      (async/close! result-chan)
-                                      true)
-                                    (do
-                                      (async/<!! notify-chan)
-                                      (recur @current-resources*)))))))))
-                      (catch Throwable e
-                        (log/error e)
-                        (Thread/sleep 2000)
-                        true))]
-      (when continue?
-        (recur))))
-  (log/warn "resource limiter thread exit")
-  (loop [item (async/<!! request-chan)]
-    (when item
-      (async/>!! (:result-chan item) (ex-info "resource limit thread exit" {}))
-      (recur (async/<!! request-chan)))))
+(defn- map-semaphore-action!
+  [action current-resources resource-map]
+  (->> resource-map
+       (map (fn [[k v]]
+              (when-not (>= (int v) 0)
+                (throw (ex-info "Resource count greater than zero"
+                                {:initial resource-map
+                                 :key k
+                                 :value v})))
+              (action (get current-resources k) (int v))))
+       dorun)
+  :ok)
 
 
-(defrecord ResourceManager [initial-resources request-chan notify-chan
-                            current-resources*
-                            min-resources*]
+(defrecord ResourceManager [initial-resources
+                            current-resources]
   PResourceManager
-  (request-resources! [mgr resource-map options]
-    (when-not request-chan
-      (throw (ex-info "Uninitialized" {})))
+  (request-resources! [mgr resource-map]
     (check-resource-amounts! initial-resources resource-map)
-    (let [result-chan (async/chan)]
-      ;;The put request returns false when it fails.
-      (when-let [result (async/>!! request-chan {:resource-map resource-map
-                                                 :result-chan result-chan})]
-        (let [error (async/<!! result-chan)]
-          (when error
-            (throw (ex-info "thread interrupted"
-                            {:error error})))))))
+    (map-semaphore-action! #(.acquire ^Semaphore %1 %2) current-resources resource-map)
+    :ok)
 
-  (release-resources! [mgr resource-map options]
-    (loop [current-res @current-resources*]
-      (if (compare-and-set! current-resources* current-res (release-resource-map current-res resource-map))
-        (do
-          (swap! min-resources* store-min-resources current-res)
-          :ok)
-        (recur @current-resources*))))
+  (release-resources! [mgr resource-map]
+    (map-semaphore-action! #(.release ^Semaphore %1 %2) current-resources resource-map)
+    :ok)
 
 
   c/Lifecycle
   (start [this]
-    (if-not (:thread this)
-      (let [request-chan (async/chan)
-            notify-chan (async/chan)
-            current-res* (atom initial-resources)
-            thread (async/thread
-                     #(resource-thread-loop current-res* request-chan notify-chan))]
-        (assoc this
-               :request-chan request-chan
-               :notify-chan notify-chan
-               :current-resources* current-res*
-               :thread thread))
+    (if-not (:current-resources this)
+      (assoc this :current-resources
+             (->> initial-resources
+                  (map (fn [[k v]]
+                         (when-not (>= (int v) 0)
+                           (throw (ex-info "Value out of range" {:initial initial-resources
+                                                                 :key k
+                                                                 :value v})))
+                         [k (Semaphore. (int v) true)]))
+                  (into {})))
       this))
   (stop [this]
-    (if (:thread this)
-      (do
-        (async/close! request-chan)
-        (async/close! notify-chan)
-        ;;Wait for thread exit
-        (async/<!! (:thread this))
-        (dissoc this
-                :request-chan
-                :notify-chan
-                :active-cores
-                :thread))
-      this)))
+    (dissoc this :current-resources)))
+
+(defn resource-manager
+  [{:keys [initial-resources]
+    :or {initial-resources (default-resource-map)}}]
+  (map->ResourceManager {:initial-resources initial-resources}))
