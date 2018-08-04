@@ -3,7 +3,7 @@
 to have different tasks take vastly different amounts of resources.
 Some may use a lot of ram but no cpu, etc.
 Resource limit is a generic way to limit the amount of resources the
-system can use assuming they can be statically defined task.
+system can use assuming they can be statically defined for the task.
 
 In our case resources are represented by an integer and as long as
 subtracting that number from the system's resources returns a result
