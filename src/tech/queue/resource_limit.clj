@@ -184,7 +184,7 @@ larger than initial amounts"
 ;; This may seem simpler in that it avoids the need for the resource thread.
 ;; It is, however, impossible to guarantee FIFO behavior in that case as each semaphore
 ;; is grabbed in a granular fashion instead of atomically in a transaction.  Without FIFO
-;; you do run into the very possible case of starvation.  This we move to a more complex
+;; you do run into the very possible case of starvation.  Thus we move to a more complex
 ;; implementation that attempts to guarantee transactional semantics and strict FIFO
 ;; behavior.
 (defrecord ResourceManager [initial-resources request-chan notify-chan
