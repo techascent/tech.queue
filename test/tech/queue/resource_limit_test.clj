@@ -26,6 +26,6 @@
                         (map inc)
                         (apply +))]
         (is (= answer result))
-        (is (<= 3 @max-atom)))
+        (is (<= @max-atom 3)))
       (finally
         (c/stop manager)))))
