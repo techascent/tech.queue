@@ -97,4 +97,4 @@
   (let [temp-dir (or temp-dir (-> (temp-file/random-file-url)
                                   url/url->parts
                                   url/parts->file-path))]
-    (assoc (->TemporaryDurableQueueProvider temp-dir options))))
+    (->TemporaryDurableQueueProvider temp-dir options)))

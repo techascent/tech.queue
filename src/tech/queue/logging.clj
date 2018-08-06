@@ -3,6 +3,10 @@
             [taoensso.timbre :as log]
             [clojure.pprint]))
 
+(s/def ::log-context
+  (fn [item]
+    (every? (complement coll?) (vals item))))
+
 
 (defmacro merge-context
   [context-map & body]

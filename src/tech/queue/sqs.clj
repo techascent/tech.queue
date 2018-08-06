@@ -4,7 +4,8 @@
             [tech.queue.protocols :as q-proto]
             [clojure.string :as s]
             [clojure.edn :as edn]
-            [com.stuartsierra.component :as c])
+            [com.stuartsierra.component :as c]
+            [taoensso.timbre :as log])
   (:import [java.util Date UUID]
            [com.amazonaws.services.sqs.model QueueDoesNotExistException]))
 
@@ -134,13 +135,13 @@
 (defrecord TempSQSQueueProvider [src-provider queue-set-atom]
   c/Lifecycle
   (start [this]
-    (when-not (:started? this)
-      (reset! queue-set-atom #{}))
     (assoc this :started? true))
   (stop [this]
+    (log/info (str "STOPPING TEMP QUEUE" @queue-set-atom " " (:started? this)))
     (when (:started? this)
       (doseq [queue-name @queue-set-atom]
         (try
+          (log/info (str "Deleting queue - " queue-name))
           (q-proto/delete-queue! src-provider queue-name {})
           ;;Ignore this error.  If we fire up multiple systems based on this provider
           ;;then stop will get called multiple times leading to us trying to delete
