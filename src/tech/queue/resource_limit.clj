@@ -161,7 +161,6 @@ larger than initial amounts"
                                                    current-resources
                                                    request-result))
                           (do
-                            (swap! debug-msg-list conj request-result)
                             (async/close! result-chan)
                             true)
                           (do
