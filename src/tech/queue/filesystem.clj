@@ -64,16 +64,14 @@
 
 
 ;;Deletes the queue directory on shutdown.
-(defrecord TemporaryDurableQueueProvider [temp-dir default-options]
+(defrecord TemporaryDurableQueueProvider [temp-dir default-options provider]
   c/Lifecycle
   (start [this]
     (if (:started? this)
       this
       (do
         (fs/mkdirs temp-dir)
-        (assoc this
-               :started? true
-               :provider (provider temp-dir default-options)))))
+        (assoc this :started? true))))
 
 
   (stop [this]
@@ -81,14 +79,14 @@
       this
       (do
         (fs/delete-dir temp-dir)
-        (dissoc this :started? :provider))))
+        (dissoc this :started?))))
 
   q/QueueProvider
   (get-or-create-queue! [this queue-name options]
-    (q/get-or-create-queue! (get this :provider) queue-name (merge default-options options)))
+    (q/get-or-create-queue! provider queue-name (merge default-options options)))
 
   (delete-queue! [this queue-name options]
-    (q/delete-queue! (get this :provider) queue-name (merge default-options options))))
+    (q/delete-queue! provider queue-name (merge default-options options))))
 
 
 (defn temp-provider
@@ -97,4 +95,4 @@
   (let [temp-dir (or temp-dir (-> (temp-file/random-file-url)
                                   url/url->parts
                                   url/parts->file-path))]
-    (->TemporaryDurableQueueProvider temp-dir options)))
+    (->TemporaryDurableQueueProvider temp-dir options (provider temp-dir options))))
