@@ -13,8 +13,6 @@
     (q/take! src-queue (merge (request-credentials-fn) options)))
   (task->msg [this task]
     (q/task->msg src-queue task))
-  (msg->birthdate [this msg]
-    (q/msg->birthdate src-queue msg))
   (complete! [this task options]
     (q/complete! src-queue task (merge (request-credentials-fn) options)))
   (stats [this options]

@@ -5,7 +5,8 @@
             [com.stuartsierra.component :as c]
             [tech.queue.sqs :as sqs]
             [tech.queue.auth :as auth]
-            [tech.io.uuid :as uuid])
+            [tech.io.uuid :as uuid]
+            [tech.queue.resource-limit :as resource-limit])
   (:import [java.util UUID]))
 
 
@@ -28,14 +29,38 @@
 
 (deftest process-item
   (with-temp-sqs-queue
-    (worker-test/test-process-item queue)))
+    (worker-test/test-process-item queue nil)))
+
+
+(deftest process-item-res-mgr
+  (with-temp-sqs-queue
+    (worker-test/test-process-item
+     queue
+     (resource-limit/resource-manager {:initial-resources
+                                       {:froodles 10}}))))
 
 
 (deftest msg-lifetime
   (with-temp-sqs-queue
-    (worker-test/test-msg-lifetime queue)))
+    (worker-test/test-msg-lifetime queue nil)))
+
+
+(deftest msg-lifetime-res-mgr
+  (with-temp-sqs-queue
+    (worker-test/test-msg-lifetime
+     queue
+     (resource-limit/resource-manager {:initial-resources
+                                       {:froodles 10}}))))
 
 
 (deftest msg-not-ready-timeout
   (with-temp-sqs-queue
-    (worker-test/test-msg-not-ready-timeout queue)))
+    (worker-test/test-msg-not-ready-timeout queue nil)))
+
+
+(deftest msg-not-ready-timeout-res-mgr
+  (with-temp-sqs-queue
+    (worker-test/test-msg-not-ready-timeout
+     queue
+     (resource-limit/resource-manager {:initial-resources
+                                       {:froodles 10}}))))

@@ -13,7 +13,6 @@
     "take should return the value :timeout *if* the receive has timed out.
 Else it should return the next task in the queue")
   (task->msg [this task])
-  (msg->birthdate [this msg])
   (complete! [this task options])
   (stats [this options]))
 

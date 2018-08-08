@@ -5,7 +5,8 @@
             [clojure.string :as s]
             [clojure.edn :as edn]
             [com.stuartsierra.component :as c]
-            [taoensso.timbre :as log])
+            [taoensso.timbre :as log]
+            [tech.queue.time :as time])
   (:import [java.util Date UUID]
            [com.amazonaws.services.sqs.model QueueDoesNotExistException]))
 
@@ -62,8 +63,7 @@
   (put! [this msg options]
     (call-aws-fn sqs/send-message (merge default-options options)
                  :queue-url queue-url
-                 :message-body (pr-str (merge {::q-proto/birthdate (Date.)}
-                                              msg))))
+                 :message-body (pr-str (time/add-birthdate msg))))
   (take! [this options]
     (if-let [msg (-> (call-aws-fn sqs/receive-message (merge default-options options)
                                   :queue-url queue-url
@@ -73,8 +73,6 @@
       msg
       :timeout))
   (task->msg [this task] (edn/read-string (:body task)))
-  (msg->birthdate [this task]
-    (::q-proto/birthdate task))
   (complete! [this task options]
     (call-aws-fn sqs/delete-message (merge default-options options)
                  (assoc task :queue-url queue-url)))

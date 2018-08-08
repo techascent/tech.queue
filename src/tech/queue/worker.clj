@@ -7,9 +7,7 @@
             [tech.queue.resource-limit :as resource-limit]
             [tech.queue.logging :as logging]
             [tech.queue.protocols :as q]
-            [tech.queue.time :as time])
-  (:import [java.time Duration]
-           [java.util Date]))
+            [tech.queue.time :as time]))
 
 
 (defn- loop-read-from-queue
@@ -31,16 +29,6 @@
          (log/warn :queue-feeder-exit))))))
 
 
-(defn date-difference-seconds
-  ^long [^Date previous-date ^Date current-date]
-  (long
-   (->
-    (Duration/between
-     (.toInstant previous-date)
-     (.toInstant current-date))
-    (.getSeconds))))
-
-
 (defn worker-type
   [worker]
   (cond
@@ -54,39 +42,50 @@
     (worker-type worker)))
 
 
+(defn preprocess-msg
+  [{:keys [message-retry-period
+           queue
+           processor] :as worker}
+   next-item-task msg]
+  (let [msg-birthdate (time/msg->birthdate msg)
+        time-alive (try (time/seconds-since msg-birthdate)
+                        (catch Throwable e nil))]
+    (if (and time-alive
+             (>= time-alive message-retry-period))
+      (do
+        (q/complete! queue next-item-task {})
+        (log/warn (format "Dropping message: birthdate %s, time-alive: %s, queue ttl seconds: %s"
+                          msg-birthdate time-alive message-retry-period))
+        (try
+          (q/retire! processor msg {:msg msg
+                                    :status :retired})
+          (catch Throwable e
+            (log/error e)))
+        nil)
+      {:status (if (try
+                     (q/msg-ready? processor msg)
+                     (catch Throwable e
+                       (log/error e)
+                       false))
+                 :ready
+                 :not-ready)
+       :msg msg})))
+
+
 (defn- handle-processed-msg
-  [{:keys [processor queue name
-           message-retry-period
-           retry-delay-seconds
-           core-count] :as worker} next-item-task result]
+  [{:keys [processor
+           queue
+           retry-delay-seconds]
+    :as worker} next-item-task result]
   (let [msg (:msg result)
         status (:status result)]
-    (if (or (= status :not-ready?)
-            (= status :error))
-      ;;We didn't process the callback
-      (let [msg-birthdate (q/msg->birthdate queue msg)
-            time-alive (date-difference-seconds msg-birthdate (Date.))]
-        (if (< time-alive message-retry-period)
-          (a/thread
-            (do (a/<!! (a/timeout (* 1000 retry-delay-seconds)))
-                (q/put! queue msg {})
-                (q/complete! queue next-item-task {})))
-          (do
-            (log/warn (format "Dropping message: birthdate %s, time-alive: %s, queue ttl seconds: %s"
-                              msg-birthdate time-alive message-retry-period))
-
-            (try
-              ;;If we fail to retire the message then we have to requeue it.  This essentially
-              ;;means that we have to fix the failure mode somehow.  We simply cannot lose
-              ;;messages due to failure if they should be retired
-              (q/retire! processor msg result)
-              (q/complete! queue next-item-task {})
-              (catch Throwable e
-                ;;Note the task won't be completed.  This means that we will get back around to
-                ;;it.
-                (log/error e))))))
+    (if (= status :success)
       (do
         (log/info :processing-success)
+        (q/complete! queue next-item-task {}))
+      (a/thread
+        (a/<!! (a/timeout (* 1000 retry-delay-seconds)))
+        (q/put! queue msg {})
         (q/complete! queue next-item-task {})))))
 
 
@@ -98,21 +97,18 @@
   (let [msg (q/task->msg queue next-item-task)]
     (logging/merge-context
      (q/msg->log-context processor msg)
-     (let [result (if (q/msg-ready? processor msg)
-                    (try
-                      (q/process! processor msg)
-                      (catch Throwable e
-                        (log/error e)
-                        {:status :error
-                         :error e
-                         :msg msg}))
-                    {:status :not-ready?
-                     :msg msg})
-           ;;Overshadow msg potentially.  This allows the processing function to do something
-           ;;like attempt a callback to a remote system.  This can fail, but we want to keep
-           ;;track of callback attempts
-           result (assoc result :msg (or (:msg result) msg))]
-       (handle-processed-msg worker next-item-task result)))))
+     (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
+       (let [{:keys [msg status]} preprocess-result
+             result (if (= status :ready)
+                      (try
+                        (q/process! processor msg)
+                        (catch Throwable e
+                          (log/error e)
+                          {:status :error
+                           :error e
+                           :msg msg}))
+                      preprocess-result)]
+         (handle-processed-msg worker next-item-task result))))))
 
 
 (defmethod worker-process-item :resource-limited
@@ -123,25 +119,25 @@
   (let [msg (q/task->msg queue next-item-task)]
     (logging/merge-context
      (q/msg->log-context processor msg)
-     (if-let [ready? (q/msg-ready? processor msg)]
-       (let [res-map (q/resource-map processor msg)]
-         ;;Block here until we get the green light
-         (resource-limit/request-resources! resource-mgr res-map)
-         (future
-           (try
-             (let [result (try
-                            (q/process! processor msg)
-                            (catch Throwable e
-                              (log/error e)
-                              {:status :error
-                               :error e
-                               :msg msg}))
-                   result (assoc result :msg (or (:msg result) msg))]
-               (handle-processed-msg worker next-item-task result))
-             (finally
-               (resource-limit/release-resources! resource-mgr res-map)))))
-       (handle-processed-msg worker next-item-task {:status :not-ready?
-                                                    :msg msg})))))
+     (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
+       (if (= (:status preprocess-result) :ready)
+         (let [res-map (q/resource-map processor msg)]
+           ;;Block here until we get the green light
+           (resource-limit/request-resources! resource-mgr res-map)
+           (future
+             (try
+               (let [result (try
+                              (q/process! processor msg)
+                              (catch Throwable e
+                                (log/error e)
+                                {:status :error
+                                 :error e
+                                 :msg msg}))
+                     result (assoc result :msg (or (:msg result) msg))]
+                 (handle-processed-msg worker next-item-task result))
+               (finally
+                 (resource-limit/release-resources! resource-mgr res-map)))))
+         (handle-processed-msg worker next-item-task preprocess-result))))))
 
 
 (defn- process-item-sequence

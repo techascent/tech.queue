@@ -4,7 +4,8 @@
             [me.raynes.fs :as fs]
             [tech.queue.protocols :as q]
             [tech.io.temp-file :as temp-file]
-            [tech.io.url :as url])
+            [tech.io.url :as url]
+            [tech.queue.time :as time])
   (:import [java.util Date UUID]))
 
 
@@ -17,15 +18,13 @@
 (defrecord DurableQueue [queue-obj queue-name default-options]
   q/QueueProtocol
   (put! [this msg options]
-    (durable/put! queue-obj queue-name (merge {::q/birthdate (Date.)}
-                                               msg)))
+    (durable/put! queue-obj queue-name (time/add-birthdate msg)))
   (take! [this options]
     (durable/take! queue-obj queue-name
                    (* 1000 (get (merge default-options options)
                                 :receive-message-wait-time-seconds))
                    :timeout))
   (task->msg [this task] @task)
-  (msg->birthdate [this msg] (::q/birthdate msg))
   (complete! [this task options]
     (durable/complete! task))
   (stats [this options]

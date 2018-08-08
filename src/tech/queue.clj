@@ -3,6 +3,7 @@
             [tech.queue.protocols :as q-proto]
             [tech.queue.providers :as providers]
             [tech.queue.worker :as worker]
+            [tech.queue.time :as time]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.core.async :as async]
             [taoensso.timbre :as log]
@@ -53,9 +54,7 @@
 (defn msg->birthdate
   "Queues always place birthdates on messages if they are not already on them."
   [url msg & [options]]
-  (lookup-provider
-   url options
-   (q-proto/msg->birthdate queue msg)))
+  (time/msg->birthdate msg))
 
 (defn complete!
   "Complete a task.  Tasks, once taken, are only temporarily invisible.

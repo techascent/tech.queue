@@ -1,4 +1,6 @@
-(ns tech.queue.time)
+(ns tech.queue.time
+  (:import [java.util Date]
+           [java.time Duration]))
 
 
 (defn minutes->seconds
@@ -16,3 +18,25 @@
   ^long [days]
   (hours->seconds
    (* (double days) 24)))
+
+
+(defn add-birthdate
+  [msg]
+  (merge (merge {:tech.queue.protocols/birthdate (Date.)}
+                msg)))
+
+
+(defn msg->birthdate
+  [msg]
+  (or (:tech.queue.protocols/birthdate msg)
+      (:fsof.components.queue/birthdate msg)))
+
+
+(defn seconds-since
+  [previous-date & [current-date]]
+  (long
+   (->
+    (Duration/between
+     (.toInstant previous-date)
+     (.toInstant ^Date (or current-date (Date.))))
+    (.getSeconds))))
