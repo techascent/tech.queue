@@ -4,7 +4,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
-                 [techascent/tech.io "0.1.15"]
+                 [techascent/tech.io "0.1.16"]
                  [com.amazonaws/aws-java-sdk-sqs "1.11.341"]
                  [thinktopic/think.parallel "0.3.7"]
                  [factual/durable-queue "0.1.6" :exclusions [com.taoensso/nippy]]

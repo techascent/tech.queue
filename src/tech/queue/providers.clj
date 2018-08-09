@@ -26,7 +26,7 @@
          (do
            (require 'tech.queue.auth)
            (-> ((resolve 'tech.queue.auth/vault-aws-auth-provider)
-                (config/get-config :tech-queue-vault-aws-path)
+                (config/get-config :tech-vault-aws-path)
                 sqs-provider
                 options)
                c/start))

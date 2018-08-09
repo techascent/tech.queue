@@ -1,3 +1,1 @@
-{:tech-queue-sqs-vault-auth false
- :tech-queue-vault-aws-path ""
- :tech-aws-endpoint "us-west-2"}
+{:tech-queue-sqs-vault-auth false}
