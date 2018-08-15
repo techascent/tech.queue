@@ -140,6 +140,7 @@
                    (resource-limit/release-resources! resource-mgr res-map)))))
            (handle-processed-msg worker next-item-task preprocess-result))
          (catch Throwable e
+           (log/error e)
            (handle-processed-msg worker next-item-task {:status :error
                                                         :error e
                                                         :msg msg})))))))
