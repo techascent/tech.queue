@@ -120,24 +120,29 @@
     (logging/merge-context
      (q/msg->log-context processor msg)
      (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
-       (if (= (:status preprocess-result) :ready)
-         (let [res-map (q/resource-map processor msg)]
-           ;;Block here until we get the green light
-           (resource-limit/request-resources! resource-mgr res-map)
-           (future
-             (try
-               (let [result (try
-                              (q/process! processor msg)
-                              (catch Throwable e
-                                (log/error e)
-                                {:status :error
-                                 :error e
-                                 :msg msg}))
-                     result (assoc result :msg (or (:msg result) msg))]
-                 (handle-processed-msg worker next-item-task result))
-               (finally
-                 (resource-limit/release-resources! resource-mgr res-map)))))
-         (handle-processed-msg worker next-item-task preprocess-result))))))
+       (try
+         (if (= (:status preprocess-result) :ready)
+           (let [res-map (q/resource-map processor msg)]
+             ;;Block here until we get the green light
+             (resource-limit/request-resources! resource-mgr res-map)
+             (future
+               (try
+                 (let [result (try
+                                (q/process! processor msg)
+                                (catch Throwable e
+                                  (log/error e)
+                                  {:status :error
+                                   :error e
+                                   :msg msg}))
+                       result (assoc result :msg (or (:msg result) msg))]
+                   (handle-processed-msg worker next-item-task result))
+                 (finally
+                   (resource-limit/release-resources! resource-mgr res-map)))))
+           (handle-processed-msg worker next-item-task preprocess-result))
+         (catch Throwable e
+           (handle-processed-msg worker next-item-task {:status :error
+                                                        :error e
+                                                        :msg msg})))))))
 
 
 (defn- process-item-sequence
