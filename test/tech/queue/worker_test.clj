@@ -10,15 +10,18 @@
   (:import [java.util UUID]))
 
 
+(defn process-queue-data
+  [*score msg]
+  (swap! *score + (:amount msg))
+  {:status :success})
+
+
 (defrecord BasicAtomProcessor [log-ctx *score *retire-list ready?]
   q/QueueProcessor
   (msg->log-context [_ _] log-ctx)
   (msg-ready? [_ _] ready?)
   (process! [_ msg]
-    (try
-      (swap! *score + (:amount msg))
-      (catch Throwable e
-        (throw e)))
+    (process-queue-data *score msg)
     {:status :success})
   (retire! [_ msg result] (swap! *retire-list conj [msg result]))
 
@@ -46,7 +49,7 @@
          (fs/delete-dir temp-dir#)))))
 
 
-(defn- delay-till-empty
+(defn delay-till-empty
   [queue]
   (let [result (async/alt!!
                  (async/timeout 6000) :timeout
@@ -58,7 +61,7 @@
     (is (= result :success))))
 
 
-(defn- threads-or-resource-mgr
+(defn threads-or-resource-mgr
   [resource-mgr]
   (if resource-mgr
     {:resource-mgr resource-mgr}
@@ -92,7 +95,8 @@
 
 (deftest process-item-res-mgr
   (with-queue-provider
-    (test-process-item queue (resource-limit/resource-manager {:initial-resources {:froodles 10}}))))
+    (test-process-item queue (resource-limit/resource-manager
+                              {:initial-resources {:froodles 10}}))))
 
 
 (defn test-msg-lifetime
