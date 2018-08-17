@@ -5,6 +5,7 @@
 
 (defn keyword->fn
   [kwd]
+  (require (symbol (namespace kwd)))
   (resolve (symbol (namespace kwd) (name kwd))))
 
 
