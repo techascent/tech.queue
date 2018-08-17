@@ -56,7 +56,7 @@ last-attempt-result:
 
 
 (defprotocol PResourceLimit
-  (resource-map [this msg]
+  (resource-map [this msg initial-resource-map]
     "Resources this task needs.
 Map may be empty, or may contain whatever resources are defined in the
 resource manager.

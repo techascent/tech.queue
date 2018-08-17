@@ -75,9 +75,11 @@ At manager creation time a similar map is provided indicating the initial state.
   [initial-resources resource-map]
   (when-let [invalid-resources
              (->> resource-map
-                  (filter (fn [[k v]]
-                            (when-not (or (contains? initial-resources k)
-                                          (> v (get initial-resources k))))))
+                  (remove (fn [[k v]]
+                            (and (contains? initial-resources k)
+                                 (number? v)
+                                 (number? (get initial-resources k))
+                                 (<= v (get initial-resources k)))))
                   seq)]
     (throw (ex-info "Invalid resources, either not specified initially or
 larger than initial amounts"

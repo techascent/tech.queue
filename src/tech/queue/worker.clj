@@ -122,7 +122,7 @@
      (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
        (try
          (if (= (:status preprocess-result) :ready)
-           (let [res-map (q/resource-map processor msg)]
+           (let [res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
              ;;Block here until we get the green light
              (resource-limit/request-resources! resource-mgr res-map)
              (future

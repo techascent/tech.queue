@@ -41,8 +41,8 @@
     (q/retire! (dispatch-fn context msg) msg last-attempt-result))
 
   q/PResourceLimit
-  (resource-map [this msg]
-    (q/resource-map (dispatch-fn context msg) msg)))
+  (resource-map [this msg initial-res]
+    (q/resource-map (dispatch-fn context msg) msg initial-res)))
 
 
 (defn task-processor
@@ -68,15 +68,17 @@
       (ready-fn msg)
       true))
   (process! [this msg]
-    (process-fn msg))
+    (process-fn msg)
+    {:status :success
+     :msg msg})
   (retire! [this msg last-attempt-result]
     (when retire-fn
       (retire-fn msg)))
 
   q/PResourceLimit
-  (resource-map [this msg]
+  (resource-map [this msg initial-res-map]
     (if resource-map-fn
-      (resource-map-fn msg)
+      (resource-map-fn msg initial-res-map)
       {})))
 
 

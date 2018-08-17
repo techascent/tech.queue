@@ -6,7 +6,8 @@
             [tech.queue.protocols :as q]
             [tech.queue.filesystem :as qf]
             [clojure.core.async :as async]
-            [tech.queue.resource-limit :as resource-limit])
+            [tech.queue.resource-limit :as resource-limit]
+            [taoensso.timbre :as log])
   (:import [java.util UUID]))
 
 
@@ -22,11 +23,12 @@
   (msg-ready? [_ _] ready?)
   (process! [_ msg]
     (process-queue-data *score msg)
+    ;;(log/info (str (:amount msg)))
     {:status :success})
   (retire! [_ msg result] (swap! *retire-list conj [msg result]))
 
   q/PResourceLimit
-  (resource-map [_ msg]
+  (resource-map [_ msg init-res]
     {:froodles 3}))
 
 
@@ -74,12 +76,12 @@
     (let [resource-mgr (when resource-mgr
                          (c/start resource-mgr))
           processor (create-basic-atom-processor)
+          amounts [5 1 8 10 21 4]
+          _  (doseq [amt amounts]
+               (q/put! queue {:amount amt} {}))
           worker (c/start
-                  (qw/worker :incrementor processor queue (threads-or-resource-mgr resource-mgr)))
-          amounts [1 5 8 10 21 4]]
+                  (qw/worker :incrementor processor queue (threads-or-resource-mgr resource-mgr)))]
       (try
-        (doseq [amt amounts]
-          (q/put! queue {:amount amt} {}))
         (delay-till-empty queue)
         (is (= @(get processor :*score) (reduce + amounts)))
         (finally
@@ -105,15 +107,15 @@
     (let [resource-mgr (when resource-mgr
                          (c/start resource-mgr))
           processor (create-basic-atom-processor)
+          amounts [1 5 8 :b 21 4]
+          _ (doseq [amt amounts]
+              (q/put! queue {:amount amt} {}))
           worker (c/start
                   (qw/worker :incrementor processor queue (merge
                                                            {:retry-delay-seconds 1
                                                             :message-retry-period 1}
-                                                           (threads-or-resource-mgr resource-mgr))))
-          amounts [1 5 8 :b 21 4]]
+                                                           (threads-or-resource-mgr resource-mgr))))]
       (try
-        (doseq [amt amounts]
-          (q/put! queue {:amount amt} {}))
         (delay-till-empty queue)
         ;;Due to lifetime limits (1 second isn't much time), it is possible that
         ;;one of the valid messages gets dropped.
@@ -145,16 +147,16 @@
   (testing "Testing message that aren't ready eventually get removed"
     (let [resource-mgr (when resource-mgr
                          (c/start resource-mgr))
+          amounts [1 5 8 :b 21 4]
+          _ (doseq [amt amounts]
+              (q/put! queue {:amount amt} {}))
           processor (create-basic-atom-processor :ready? false)
           worker (c/start
                   (qw/worker :incrementor processor queue (merge
                                                            {:retry-delay-seconds 1
                                                             :message-retry-period 1}
-                                                           (threads-or-resource-mgr resource-mgr))))
-          amounts [1 5 8 :b 21 4]]
+                                                           (threads-or-resource-mgr resource-mgr))))]
       (try
-        (doseq [amt amounts]
-          (q/put! queue {:amount amt} {}))
         (delay-till-empty queue)
         (is (= @(get processor :*score) 0))
         (is (= (count amounts)

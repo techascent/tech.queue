@@ -25,15 +25,15 @@
     (let [resource-mgr (when resource-mgr
                          (c/start resource-mgr))
           score-atom (atom 0)
-
+          amounts [1 5 8 10 21 4]
+          _  (doseq [amt amounts]
+               (task/put! queue #'msg->processor {:amount amt} {}))
           worker (c/start
                   (qw/worker :incrementor (task/task-processor {:score score-atom})
                              queue
                              (worker-test/threads-or-resource-mgr resource-mgr)))
-          amounts [1 5 8 10 21 4]]
+]
       (try
-        (doseq [amt amounts]
-          (task/put! queue #'msg->processor {:amount amt} {}))
         (worker-test/delay-till-empty queue)
         (is (= @score-atom (reduce + amounts)))
         (finally
