@@ -28,6 +28,13 @@
      ~@body))
 
 
+(defn url->queue
+  [url options]
+  (lookup-provider
+   url options
+   queue))
+
+
 (defn put!
   "Place a msg in a queue"
   [url msg & [options]]
