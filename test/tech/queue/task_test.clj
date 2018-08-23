@@ -31,8 +31,8 @@
           worker (c/start
                   (qw/worker :incrementor (task/task-processor {:score score-atom})
                              queue
-                             (worker-test/threads-or-resource-mgr resource-mgr)))
-]
+                             (assoc (worker-test/threads-or-resource-mgr resource-mgr)
+                                    :heavy-logging? true)))]
       (try
         (worker-test/delay-till-empty queue)
         (is (= @score-atom (reduce + amounts)))

@@ -7,17 +7,22 @@
             [tech.queue.resource-limit :as resource-limit]
             [tech.queue.logging :as logging]
             [tech.queue.protocols :as q]
-            [tech.queue.time :as time]))
+            [tech.queue.time :as time]
+            [clojure.pprint :as pprint]))
 
 
 (defn- loop-read-from-queue
-  [service-name queue write-channel timeout-ms control-channel]
+  [service-name queue write-channel timeout-ms control-channel heavy-logging?]
   (logging/merge-context
    {:service service-name}
    (loop []
      (try
        (let [next-value (q/take! queue {})]
          (when-not (= :timeout next-value)
+           (when heavy-logging?
+             (log/debug (format "Received %s" (with-out-str
+                                                (pprint/pprint
+                                                 (q/task->msg queue next-value))))))
            (a/>!! write-channel next-value)))
        (catch Throwable e
          (log/error e)))
@@ -75,7 +80,8 @@
 (defn- handle-processed-msg
   [{:keys [processor
            queue
-           retry-delay-seconds]
+           retry-delay-seconds
+           heavy-logging?]
     :as worker} next-item-task result]
   (let [msg (:msg result)
         status (:status result)]
@@ -84,6 +90,8 @@
         (log/info :processing-success)
         (q/complete! queue next-item-task {}))
       (a/thread
+        (when heavy-logging?
+          (log/info :retrying))
         (a/<!! (a/timeout (* 1000 retry-delay-seconds)))
         (q/put! queue msg {})
         (q/complete! queue next-item-task {})))))
@@ -115,35 +123,41 @@
   [{:keys [processor queue name
            message-retry-period
            retry-delay-seconds
-           resource-mgr] :as worker} next-item-task]
+           resource-mgr
+           heavy-logging?] :as worker} next-item-task]
   (let [msg (q/task->msg queue next-item-task)]
-    (logging/merge-context
-     (q/msg->log-context processor msg)
-     (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
-       (try
-         (if (= (:status preprocess-result) :ready)
-           (let [res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
-             ;;Block here until we get the green light
-             (resource-limit/request-resources! resource-mgr res-map)
-             (future
-               (try
-                 (let [result (try
-                                (q/process! processor msg)
-                                (catch Throwable e
-                                  (log/error e)
-                                  {:status :error
-                                   :error e
-                                   :msg msg}))
-                       result (assoc result :msg (or (:msg result) msg))]
-                   (handle-processed-msg worker next-item-task result))
-                 (finally
-                   (resource-limit/release-resources! resource-mgr res-map)))))
-           (handle-processed-msg worker next-item-task preprocess-result))
-         (catch Throwable e
-           (log/error e)
-           (handle-processed-msg worker next-item-task {:status :error
-                                                        :error e
-                                                        :msg msg})))))))
+    (when heavy-logging?
+      (log/debug (format "handling %s" (with-out-str (pprint/pprint msg)))))
+    (try
+      (logging/merge-context
+       (q/msg->log-context processor msg)
+       (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
+         (try
+           (if (= (:status preprocess-result) :ready)
+             (let [res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
+               ;;Block here until we get the green light
+               (resource-limit/request-resources! resource-mgr res-map)
+               (future
+                 (try
+                   (let [result (try
+                                  (q/process! processor msg)
+                                  (catch Throwable e
+                                    (log/error e)
+                                    {:status :error
+                                     :error e
+                                     :msg msg}))
+                         result (assoc result :msg (or (:msg result) msg))]
+                     (handle-processed-msg worker next-item-task result))
+                   (finally
+                     (resource-limit/release-resources! resource-mgr res-map)))))
+             (handle-processed-msg worker next-item-task preprocess-result))
+           (catch Throwable e
+             (log/error e)
+             (handle-processed-msg worker next-item-task {:status :error
+                                                          :error e
+                                                          :msg msg})))))
+      (catch Throwable e
+        (log/error e)))))
 
 
 (defn- process-item-sequence
@@ -166,7 +180,7 @@
 
 (defrecord Worker [service processor queue thread-count
                    timeout-ms message-retry-period retry-delay-seconds
-                   core-limit resource-mgr]
+                   core-limit resource-mgr heavy-logging?]
   c/Lifecycle
   (start [this]
     (if-not (contains? this :ctl-ch)
@@ -175,7 +189,8 @@
             take-thread (a/thread
                           (loop-read-from-queue service
                                                 queue next-item-ch
-                                                timeout-ms ctl-ch))
+                                                timeout-ms ctl-ch
+                                                heavy-logging?))
             processor-thread (a/thread (process-item-sequence this next-item-ch ctl-ch))]
         (assoc this
                ::ctl-ch     ctl-ch
@@ -205,7 +220,8 @@
   [service processor queue {:keys [thread-count
                                    resource-mgr
                                    message-retry-period
-                                   retry-delay-seconds]
+                                   retry-delay-seconds
+                                   heavy-logging?]
                             :as args}]
   (when (and thread-count resource-mgr)
     (throw (ex-info "Either thread count or core limit must be in effect" {:thread-count thread-count
