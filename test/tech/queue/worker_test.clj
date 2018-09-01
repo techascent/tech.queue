@@ -67,9 +67,11 @@
 
 (defn threads-or-resource-mgr
   [resource-mgr]
-  (if resource-mgr
-    {:resource-mgr resource-mgr}
-    {:thread-count 4}))
+  (merge {:message-retry-period 60
+          :retry-delay-seconds 1}
+         (if resource-mgr
+           {:resource-mgr resource-mgr}
+           {:thread-count 4})))
 
 
 (defn test-process-item
@@ -82,7 +84,8 @@
           _  (doseq [amt amounts]
                (q/put! queue {:amount amt} {}))
           worker (c/start
-                  (qw/worker :incrementor processor queue (threads-or-resource-mgr resource-mgr)))]
+                  (qw/worker :incrementor processor queue
+                             (threads-or-resource-mgr resource-mgr)))]
       (try
         (delay-till-empty queue)
         (is (= @(get processor :*score) (reduce + amounts)))
@@ -114,9 +117,10 @@
               (q/put! queue {:amount amt} {}))
           worker (c/start
                   (qw/worker :incrementor processor queue (merge
+                                                           (threads-or-resource-mgr
+                                                            resource-mgr)
                                                            {:retry-delay-seconds 1
-                                                            :message-retry-period 1}
-                                                           (threads-or-resource-mgr resource-mgr))))]
+                                                            :message-retry-period 3})))]
       (try
         (delay-till-empty queue)
         ;;Due to lifetime limits (1 second isn't much time), it is possible that
@@ -155,9 +159,10 @@
           processor (create-basic-atom-processor :ready? false)
           worker (c/start
                   (qw/worker :incrementor processor queue (merge
+                                                           (threads-or-resource-mgr
+                                                            resource-mgr)
                                                            {:retry-delay-seconds 1
-                                                            :message-retry-period 1}
-                                                           (threads-or-resource-mgr resource-mgr))))]
+                                                            :message-retry-period 3})))]
       (try
         (delay-till-empty queue)
         (is (= @(get processor :*score) 0))

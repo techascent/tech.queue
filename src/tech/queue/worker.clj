@@ -7,17 +7,22 @@
             [tech.queue.resource-limit :as resource-limit]
             [tech.queue.logging :as logging]
             [tech.queue.protocols :as q]
-            [tech.queue.time :as time]))
+            [tech.queue.time :as time]
+            [clojure.pprint :as pprint]))
 
 
 (defn- loop-read-from-queue
-  [service-name queue write-channel timeout-ms control-channel]
+  [service-name queue write-channel timeout-ms control-channel heavy-logging?]
   (logging/merge-context
    {:service service-name}
    (loop []
      (try
        (let [next-value (q/take! queue {})]
          (when-not (= :timeout next-value)
+           (when heavy-logging?
+             (log/debug (format "Received %s" (with-out-str
+                                                (pprint/pprint
+                                                 (q/task->msg queue next-value))))))
            (a/>!! write-channel next-value)))
        (catch Throwable e
          (log/error e)))
@@ -75,7 +80,8 @@
 (defn- handle-processed-msg
   [{:keys [processor
            queue
-           retry-delay-seconds]
+           retry-delay-seconds
+           heavy-logging?]
     :as worker} next-item-task result]
   (let [msg (:msg result)
         status (:status result)]
@@ -84,6 +90,8 @@
         (log/info :processing-success)
         (q/complete! queue next-item-task {}))
       (a/thread
+        (when heavy-logging?
+          (log/info :retrying))
         (a/<!! (a/timeout (* 1000 retry-delay-seconds)))
         (q/put! queue msg {})
         (q/complete! queue next-item-task {})))))
@@ -115,8 +123,12 @@
   [{:keys [processor queue name
            message-retry-period
            retry-delay-seconds
-           resource-mgr] :as worker} next-item-task]
+           resource-request-timeout-ms
+           resource-mgr
+           heavy-logging?] :as worker} next-item-task]
   (let [msg (q/task->msg queue next-item-task)]
+    (when heavy-logging?
+      (log/debug (format "handling %s" (with-out-str (pprint/pprint msg)))))
     (logging/merge-context
      (q/msg->log-context processor msg)
      (let [preprocess-result (preprocess-msg worker next-item-task msg)
@@ -127,7 +139,7 @@
                     (= :success (resource-limit/request-resources!
                                  resource-mgr
                                  res-map
-                                 100)))
+                                 (or resource-request-timeout-ms 100))))
              (future
                (try
                  (let [result (try
@@ -141,7 +153,8 @@
                    (handle-processed-msg worker next-item-task result))
                  (finally
                    (resource-limit/release-resources! resource-mgr res-map))))
-             (handle-processed-msg worker next-item-task preprocess-result))
+             (do
+               (handle-processed-msg worker next-item-task preprocess-result)))
            (catch Throwable e
              (log/error e)
              (handle-processed-msg worker next-item-task {:status :error
@@ -169,7 +182,8 @@
 
 (defrecord Worker [service processor queue thread-count
                    timeout-ms message-retry-period retry-delay-seconds
-                   core-limit resource-mgr]
+                   resource-request-timeout-ms
+                   core-limit resource-mgr heavy-logging?]
   c/Lifecycle
   (start [this]
     (if-not (contains? this :ctl-ch)
@@ -178,7 +192,8 @@
             take-thread (a/thread
                           (loop-read-from-queue service
                                                 queue next-item-ch
-                                                timeout-ms ctl-ch))
+                                                timeout-ms ctl-ch
+                                                heavy-logging?))
             processor-thread (a/thread (process-item-sequence this next-item-ch ctl-ch))]
         (assoc this
                ::ctl-ch     ctl-ch
@@ -201,14 +216,17 @@
 
 (def worker-defaults
   {:message-retry-period (time/hours->seconds 2)
-   :retry-delay-seconds (time/minutes->seconds 5)})
+   :retry-delay-seconds (time/minutes->seconds 5)
+   :resource-request-timeout-ms 100})
 
 
 (defn worker
   [service processor queue {:keys [thread-count
                                    resource-mgr
                                    message-retry-period
-                                   retry-delay-seconds]
+                                   retry-delay-seconds
+                                   resource-request-timeout-ms
+                                   heavy-logging?]
                             :as args}]
   (when (and thread-count resource-mgr)
     (throw (ex-info "Either thread count or core limit must be in effect" {:thread-count thread-count

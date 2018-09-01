@@ -170,7 +170,7 @@ larger than initial amounts"
                     ;;released.
                     (loop [current-resources @current-resources*
                            current-status @status-atom]
-                      (when (= current-status :waiting)
+                      (if (= current-status :waiting)
                         (let [request-result (request-resource-map
                                               current-resources
                                               resource-map)]
@@ -179,22 +179,22 @@ larger than initial amounts"
                                                      current-resources
                                                      request-result))
                             (do
-                              (if (compare-and-set! status-atom :waiting :satisfied)
+                              (let [successful? (compare-and-set! status-atom :waiting
+                                                                  :satisfied)]
                                 (async/close! result-chan)
-                                ;;Timeout on request thread happened
-                                (loop-release-resources current-resources*
-                                                        min-resources*
-                                                        resource-map
-                                                        nil))
-
-                              true)
+                                (when-not successful?
+                                    ;;Timeout on request thread happened
+                                    (loop-release-resources current-resources*
+                                                            min-resources*
+                                                            resource-map
+                                                            nil))))
                             (do
                               ;;If we reset the status atom but failed to get resources
                               ;;then we reset it back.  Only set it back, however, if
                               ;;it's current status is satisfied.  It could be :timeout
-                              (compare-and-set! status-atom :satisfied :waiting)
                               (async/<!! notify-chan)
-                              (recur @current-resources* @status-atom))))))))))
+                              (recur @current-resources* @status-atom)))))))
+                  true)))
             (catch Throwable e
               (log/error e)
               (Thread/sleep 2000)
@@ -240,9 +240,14 @@ larger than initial amounts"
         (= result :timeout)
         ;;The request thread *just* completed
         (if (compare-and-set! status-atom :waiting :timeout)
-          :timeout
           (do
-            (assert (= @status-atom :success))
+            (async/close! result-chan)
+            :timeout)
+          (do
+            (let [val @status-atom]
+              (when-not (= val :success)
+                (throw (ex-info "Unexpected status:"
+                                {:status val}))))
             :success))
         ;;The request thread completed within the timeout
         (nil? result)
