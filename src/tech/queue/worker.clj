@@ -119,12 +119,15 @@
   (let [msg (q/task->msg queue next-item-task)]
     (logging/merge-context
      (q/msg->log-context processor msg)
-     (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
-       (try
-         (if (= (:status preprocess-result) :ready)
-           (let [res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
-             ;;Block here until we get the green light
-             (resource-limit/request-resources! resource-mgr res-map)
+     (let [preprocess-result (preprocess-msg worker next-item-task msg)
+           res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
+       (when preprocess-result
+         (try
+           (if (and (= (:status preprocess-result) :ready)
+                    (= :success (resource-limit/request-resources!
+                                 resource-mgr
+                                 res-map
+                                 100)))
              (future
                (try
                  (let [result (try
@@ -137,13 +140,13 @@
                        result (assoc result :msg (or (:msg result) msg))]
                    (handle-processed-msg worker next-item-task result))
                  (finally
-                   (resource-limit/release-resources! resource-mgr res-map)))))
-           (handle-processed-msg worker next-item-task preprocess-result))
-         (catch Throwable e
-           (log/error e)
-           (handle-processed-msg worker next-item-task {:status :error
-                                                        :error e
-                                                        :msg msg})))))))
+                   (resource-limit/release-resources! resource-mgr res-map))))
+             (handle-processed-msg worker next-item-task preprocess-result))
+           (catch Throwable e
+             (log/error e)
+             (handle-processed-msg worker next-item-task {:status :error
+                                                          :error e
+                                                          :msg msg}))))))))
 
 
 (defn- process-item-sequence

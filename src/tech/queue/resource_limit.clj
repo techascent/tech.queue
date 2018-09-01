@@ -19,7 +19,7 @@ At manager creation time a similar map is provided indicating the initial state.
 
 
 (defprotocol PResourceManager
-  (request-resources! [mgr resource-map]
+  (request-resources! [mgr resource-map timeout-ms]
     "potentially blocking call, returns when resources can be satisfied")
   (release-resources! [mgr resource-map]
     "nonblocking returns resources to the source"))
@@ -62,13 +62,14 @@ At manager creation time a similar map is provided indicating the initial state.
 
 
 (defmacro with-resources
-  [mgr resource-map & body]
+  [mgr resource-map timeout & body]
   `(do
-     (request-resources! ~mgr ~resource-map)
-     (try
-       ~@body
-       (finally
-         (release-resources! ~mgr ~resource-map)))))
+     (if (= :success (request-resources! ~mgr ~resource-map ~timeout))
+       (try
+         ~@body
+         (finally
+           (release-resources! ~mgr ~resource-map)))
+       (throw (ex-info "Timeout" {:timeout ~timeout})))))
 
 
 (defn- check-resource-amounts!
@@ -132,9 +133,22 @@ larger than initial amounts"
   [max-resources current-resources]
   (store-resources max-resources current-resources max))
 
+(defn- loop-release-resources
+  [current-resources* min-resources* resource-map notify-chan]
+  (loop [current-res @current-resources*]
+    (if (compare-and-set! current-resources*
+                          current-res
+                          (release-resource-map current-res resource-map))
+      (do
+        (swap! min-resources* store-min-resources current-res)
+        (when notify-chan
+          (async/>!! notify-chan :released))
+        :ok)
+      (recur @current-resources*))))
+
 
 (defn- resource-thread-loop
-  [current-resources* request-chan notify-chan]
+  [current-resources* min-resources* request-chan notify-chan]
   (loop []
     (let [continue?
           (try
@@ -150,24 +164,37 @@ larger than initial amounts"
                 true
                 :else
                 (when value
-                  (let [{:keys [resource-map result-chan]} value]
+                  (let [{:keys [resource-map result-chan status-atom]} value]
                     ;;Inner loop exits when resources may be successfully allocated
                     ;;else spins waiting for notification that resources were
                     ;;released.
-                    (loop [current-resources @current-resources*]
-                      (let [request-result (request-resource-map
-                                            current-resources
-                                            resource-map)]
-                        (if (and request-result
-                                 (compare-and-set! current-resources*
-                                                   current-resources
-                                                   request-result))
-                          (do
-                            (async/close! result-chan)
-                            true)
-                          (do
-                            (async/<!! notify-chan)
-                            (recur @current-resources*)))))))))
+                    (loop [current-resources @current-resources*
+                           current-status @status-atom]
+                      (when (= current-status :waiting)
+                        (let [request-result (request-resource-map
+                                              current-resources
+                                              resource-map)]
+                          (if (and request-result
+                                   (compare-and-set! current-resources*
+                                                     current-resources
+                                                     request-result))
+                            (do
+                              (if (compare-and-set! status-atom :waiting :satisfied)
+                                (async/close! result-chan)
+                                ;;Timeout on request thread happened
+                                (loop-release-resources current-resources*
+                                                        min-resources*
+                                                        resource-map
+                                                        nil))
+
+                              true)
+                            (do
+                              ;;If we reset the status atom but failed to get resources
+                              ;;then we reset it back.  Only set it back, however, if
+                              ;;it's current status is satisfied.  It could be :timeout
+                              (compare-and-set! status-atom :satisfied :waiting)
+                              (async/<!! notify-chan)
+                              (recur @current-resources* @status-atom))))))))))
             (catch Throwable e
               (log/error e)
               (Thread/sleep 2000)
@@ -192,29 +219,40 @@ larger than initial amounts"
                             current-resources*
                             min-resources*]
   PResourceManager
-  (request-resources! [mgr resource-map]
+  (request-resources! [mgr resource-map timeout-ms]
     (when-not request-chan
       (throw (ex-info "Uninitialized" {})))
     (check-resource-amounts! initial-resources resource-map)
-    (let [result-chan (async/chan)]
-      ;;The put request returns false when it fails.
-      (when-let [result (async/>!! request-chan {:resource-map resource-map
-                                                 :result-chan result-chan})]
-        (let [error (async/<!! result-chan)]
-          (when error
-            (throw (ex-info "thread interrupted"
-                            {:error error})))))))
+    (let [result-chan (async/chan)
+          status-atom (atom :waiting)
+          timeout-chan (async/timeout timeout-ms)
+          go-chan (async/go
+                    ;;The put request returns false when it fails.
+                    (if-let [result (async/>! request-chan {:resource-map resource-map
+                                                            :result-chan result-chan
+                                                            :status-atom status-atom})]
+                      (async/<! result-chan)
+                      :request-chan-closed))
+          result (async/alt!!
+                   go-chan ([value] value)
+                   timeout-chan :timeout)]
+      (cond
+        (= result :timeout)
+        ;;The request thread *just* completed
+        (if (compare-and-set! status-atom :waiting :timeout)
+          :timeout
+          (do
+            (assert (= @status-atom :success))
+            :success))
+        ;;The request thread completed within the timeout
+        (nil? result)
+        :success
+        ;;The request thread indicated exit or error.
+        :else
+        (throw (ex-info "Request failed" {:result result})))))
 
   (release-resources! [mgr resource-map]
-    (loop [current-res @current-resources*]
-      (if (compare-and-set! current-resources*
-                            current-res
-                            (release-resource-map current-res resource-map))
-        (do
-          (swap! min-resources* store-min-resources current-res)
-          (async/>!! notify-chan :released)
-          :ok)
-        (recur @current-resources*))))
+    (loop-release-resources current-resources* min-resources* resource-map notify-chan))
 
 
   c/Lifecycle
@@ -223,13 +261,16 @@ larger than initial amounts"
       (let [request-chan (async/chan)
             notify-chan (async/chan)
             current-res* (atom initial-resources)
+            min-resources* (atom {})
             thread (async/thread
-                     (resource-thread-loop current-res* request-chan notify-chan))]
+                     (resource-thread-loop current-res*
+                                           min-resources*
+                                           request-chan notify-chan))]
         (assoc this
                :request-chan request-chan
                :notify-chan notify-chan
                :current-resources* current-res*
-               :min-resources* (atom {})
+               :min-resources* min-resources*
                :thread thread))
       this))
   (stop [this]

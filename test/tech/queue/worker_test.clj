@@ -14,6 +14,8 @@
 (defn process-queue-data
   [*score msg]
   (swap! *score + (:amount msg))
+  ;;simulate timeouts for things
+  (Thread/sleep 100)
   {:status :success})
 
 
@@ -54,7 +56,7 @@
 (defn delay-till-empty
   [queue]
   (let [result (async/alt!!
-                 (async/timeout 6000) :timeout
+                 (async/timeout 20000) :timeout
                  (async/thread
                    (->> (repeatedly #(do (Thread/sleep 200) (q/stats queue {})))
                         (map :in-flight)

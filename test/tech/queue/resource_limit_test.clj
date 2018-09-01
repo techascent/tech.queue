@@ -14,8 +14,9 @@
       (let [number-range 1000
             result (->> (range number-range)
                         (pmap (fn [idx]
-                                (rl/with-resources manager {:froodles 1
-                                                            :boodles 50}
+                                (rl/with-resources
+                                  manager {:froodles 1
+                                           :boodles 50} 5000
                                   (let [items (swap! count-atom inc)]
                                     (swap! max-atom max items)
                                     (Thread/sleep 10)
