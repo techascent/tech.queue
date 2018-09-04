@@ -123,41 +123,43 @@
   [{:keys [processor queue name
            message-retry-period
            retry-delay-seconds
+           resource-request-timeout-ms
            resource-mgr
            heavy-logging?] :as worker} next-item-task]
   (let [msg (q/task->msg queue next-item-task)]
     (when heavy-logging?
       (log/debug (format "handling %s" (with-out-str (pprint/pprint msg)))))
-    (try
-      (logging/merge-context
-       (q/msg->log-context processor msg)
-       (when-let [preprocess-result (preprocess-msg worker next-item-task msg)]
+    (logging/merge-context
+     (q/msg->log-context processor msg)
+     (let [preprocess-result (preprocess-msg worker next-item-task msg)
+           res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
+       (when preprocess-result
          (try
-           (if (= (:status preprocess-result) :ready)
-             (let [res-map (q/resource-map processor msg (:initial-resources resource-mgr))]
-               ;;Block here until we get the green light
-               (resource-limit/request-resources! resource-mgr res-map)
-               (future
-                 (try
-                   (let [result (try
-                                  (q/process! processor msg)
-                                  (catch Throwable e
-                                    (log/error e)
-                                    {:status :error
-                                     :error e
-                                     :msg msg}))
-                         result (assoc result :msg (or (:msg result) msg))]
-                     (handle-processed-msg worker next-item-task result))
-                   (finally
-                     (resource-limit/release-resources! resource-mgr res-map)))))
-             (handle-processed-msg worker next-item-task preprocess-result))
+           (if (and (= (:status preprocess-result) :ready)
+                    (= :success (resource-limit/request-resources!
+                                 resource-mgr
+                                 res-map
+                                 (or resource-request-timeout-ms 100))))
+             (future
+               (try
+                 (let [result (try
+                                (q/process! processor msg)
+                                (catch Throwable e
+                                  (log/error e)
+                                  {:status :error
+                                   :error e
+                                   :msg msg}))
+                       result (assoc result :msg (or (:msg result) msg))]
+                   (handle-processed-msg worker next-item-task result))
+                 (finally
+                   (resource-limit/release-resources! resource-mgr res-map))))
+             (do
+               (handle-processed-msg worker next-item-task preprocess-result)))
            (catch Throwable e
              (log/error e)
              (handle-processed-msg worker next-item-task {:status :error
                                                           :error e
-                                                          :msg msg})))))
-      (catch Throwable e
-        (log/error e)))))
+                                                          :msg msg}))))))))
 
 
 (defn- process-item-sequence
@@ -180,6 +182,7 @@
 
 (defrecord Worker [service processor queue thread-count
                    timeout-ms message-retry-period retry-delay-seconds
+                   resource-request-timeout-ms
                    core-limit resource-mgr heavy-logging?]
   c/Lifecycle
   (start [this]
@@ -213,7 +216,8 @@
 
 (def worker-defaults
   {:message-retry-period (time/hours->seconds 2)
-   :retry-delay-seconds (time/minutes->seconds 5)})
+   :retry-delay-seconds (time/minutes->seconds 5)
+   :resource-request-timeout-ms 100})
 
 
 (defn worker
@@ -221,6 +225,7 @@
                                    resource-mgr
                                    message-retry-period
                                    retry-delay-seconds
+                                   resource-request-timeout-ms
                                    heavy-logging?]
                             :as args}]
   (when (and thread-count resource-mgr)
