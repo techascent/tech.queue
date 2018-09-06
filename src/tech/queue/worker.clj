@@ -12,7 +12,7 @@
 
 
 (defn- loop-read-from-queue
-  [service-name queue write-channel timeout-ms control-channel heavy-logging?]
+  [service-name queue write-channel control-channel heavy-logging?]
   (logging/merge-context
    {:service service-name}
    (loop []
@@ -181,7 +181,7 @@
 
 
 (defrecord Worker [service processor queue thread-count
-                   timeout-ms message-retry-period retry-delay-seconds
+                   message-retry-period retry-delay-seconds
                    resource-request-timeout-ms
                    resource-mgr heavy-logging?]
   c/Lifecycle
@@ -192,12 +192,12 @@
             take-thread (a/thread
                           (loop-read-from-queue service
                                                 queue next-item-ch
-                                                timeout-ms ctl-ch
+                                                ctl-ch
                                                 heavy-logging?))
             processor-thread (a/thread (process-item-sequence this next-item-ch ctl-ch))]
         (log/debug (format "%s-%s" :queue-worker-starting
                            (with-out-str (pprint/pprint (select-keys this [:thread-count
-                                                                           :timeout-ms :message-retry-period
+                                                                           :message-retry-period
                                                                            :retry-delay-seconds
                                                                            :resource-request-timeout-ms
                                                                            :resource-mgr? (boolean resource-mgr)
