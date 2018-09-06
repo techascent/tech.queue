@@ -183,7 +183,7 @@
 (defrecord Worker [service processor queue thread-count
                    timeout-ms message-retry-period retry-delay-seconds
                    resource-request-timeout-ms
-                   core-limit resource-mgr heavy-logging?]
+                   resource-mgr heavy-logging?]
   c/Lifecycle
   (start [this]
     (if-not (contains? this :ctl-ch)
@@ -195,6 +195,13 @@
                                                 timeout-ms ctl-ch
                                                 heavy-logging?))
             processor-thread (a/thread (process-item-sequence this next-item-ch ctl-ch))]
+        (log/debug (format "%s-%s" :queue-worker-starting
+                           (with-out-str (pprint/pprint (select-keys this [:thread-count
+                                                                           :timeout-ms :message-retry-period
+                                                                           :retry-delay-seconds
+                                                                           :resource-request-timeout-ms
+                                                                           :resource-mgr? (boolean resource-mgr)
+                                                                           :heavy-logging? heavy-logging?])))))
         (assoc this
                ::ctl-ch     ctl-ch
                ::take-thread take-thread

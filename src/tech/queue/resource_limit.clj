@@ -180,7 +180,7 @@ larger than initial amounts"
                                                      request-result))
                             (do
                               (let [successful? (compare-and-set! status-atom :waiting
-                                                                  :satisfied)]
+                                                                  :success)]
                                 (async/close! result-chan)
                                 (when-not successful?
                                     ;;Timeout on request thread happened
