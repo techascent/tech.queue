@@ -7,7 +7,7 @@
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.core.async :as async]
             [taoensso.timbre :as log]
-            [think.parallel.core :as parallel]))
+            [tech.parallel :as parallel]))
 
 (def ^:dynamic *static-queue-options* {})
 

@@ -3,7 +3,6 @@
             [tech.queue.filesystem :as qf]
             [tech.queue.worker :as qw]
             [tech.io.temp-file :as temp-file]
-            [think.resource.core :as resource]
             [clojure.test :refer :all]
             [tech.queue.worker-test :as worker-test]
             [com.stuartsierra.component :as c]

@@ -1,0 +1,22 @@
+{:path ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.9.0"}
+        techascent/tech.io {:mvn/version "2.7"}
+        amazonica {:mvn/version "0.3.138"
+                   :exclusions [com.fasterxml.jackson.dataformat/jackson-dataformat-cbor
+                                com.fasterxml.jackson.core/jackson-databind
+                                com.amazonaws/aws-java-sdk
+                                com.amazonaws/amazon-kinesis-client
+                                com.amazonaws/dynamodb-streams-kinesis-adapter]}
+        com.amazonaws/aws-java-sdk-sqs {:mvn/version "1.11.475"}
+        com.fasterxml.jackson.dataformat/jackson-dataformat-cbor {:mvn/version "2.9.8"}
+        com.fasterxml.jackson.core/jackson-databind {:mvn/version "2.9.8"}
+        techascent/tech.parallel {:mvn/version "1.2"}
+        factual/durable-queue {:mvn/version "0.1.6"
+                               :exclusions [com.taoensso/nippy]}
+        com.github.dblock/oshi-core {:mvn/version "3.4.0"}
+        com.stuartsierra/component {:mvn/version "0.4.0"}}
+
+ :aliases {:test {:extra-deps {techascent/vault-clj {:mvn/version "0.2.20"}}}}
+ :mvn/repos {"releases" {:url "s3://techascent.jars/releases/"}}
+
+ }

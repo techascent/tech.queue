@@ -1,7 +1,6 @@
 (ns tech.queue.auth
   (:require [tech.queue.protocols :as q]
-            [tech.io.auth :as io-auth]
-            [com.stuartsierra.component :as c]))
+            [tech.io.auth :as io-auth]))
 
 
 
@@ -20,8 +19,7 @@
 
 
 
-(defrecord AuthProvider [cred-request-timeout-ms
-                         re-request-time-ms
+(defrecord AuthProvider [re-request-time-ms
                          request-credentials-fn
                          src-cred-fn
                          src-provider]
@@ -31,29 +29,24 @@
                  (q/get-or-create-queue! src-provider queue-name
                                          (merge (request-credentials-fn) options))))
   (delete-queue! [this queue-name options]
-    (q/delete-queue! src-provider queue-name (merge (request-credentials-fn) options)))
-
-  c/Lifecycle
-  (start [this]
-    (io-auth/start-auth-provider this))
-
-  (stop [this]
-    (io-auth/stop-auth-provider this)))
+    (q/delete-queue! src-provider queue-name (merge (request-credentials-fn) options))))
 
 
 (defn provider
   "You need to call com.stuartsierra.component/start on this to enable the credential request system."
-  [cred-fn src-provider {:keys [cred-request-timeout-ms ;;How long credentials last
+  [cred-fn src-provider {:keys [
                                 re-request-time-ms ;;How long to wait for a credential request before signalling error.
                                 ]
-                         :or {cred-request-timeout-ms 10000
+                         :or {
                               ;;Save credentials for 20 minutes
                               re-request-time-ms (* 20 60 1000)}}]
-  (->AuthProvider cred-request-timeout-ms re-request-time-ms
-                  nil cred-fn src-provider))
+  (let [cred-atom (atom {})
+        request-cred-fn #(io-auth/get-credentials re-request-time-ms cred-fn cred-atom)]
+    (->AuthProvider re-request-time-ms
+                    request-cred-fn cred-fn src-provider)))
 
 
 (defn vault-aws-auth-provider
   [vault-path src-provider options]
-  (require 'tech.vault-clj.core)
-  (provider #(io-auth/get-vault-aws-creds vault-path) src-provider options))
+  (provider #(io-auth/get-vault-aws-creds vault-path options)
+            src-provider options))

@@ -3,7 +3,7 @@
             [clojure.core.async :as a]
             [taoensso.timbre :as log]
             [clojure.core.async.impl.protocols :as async-protocols]
-            [think.parallel.core :as parallel]
+            [tech.parallel :as parallel]
             [tech.queue.resource-limit :as resource-limit]
             [tech.queue.logging :as logging]
             [tech.queue.protocols :as q]
