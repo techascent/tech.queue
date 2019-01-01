@@ -15,7 +15,7 @@ At manager creation time a similar map is provided indicating the initial state.
   (:require [com.stuartsierra.component :as c]
             [clojure.core.async :as async]
             [taoensso.timbre :as log])
-  (:import [oshi SystemInfo]))
+  (:import [java.lang.management ManagementFactory]))
 
 
 (defprotocol PResourceManager
@@ -33,11 +33,9 @@ At manager creation time a similar map is provided indicating the initial state.
 
 (defn system-resources
   []
-  (let [si (SystemInfo.)
-        hw (.getHardware si)
-        gm (.getMemory hw)]
-    {:system-free-space-MB (quot (.getTotal gm)
-                                 0x100000)}))
+  {:system-free-space-MB (-> (ManagementFactory/getOperatingSystemMXBean)
+                             (.getTotalPhysicalMemorySize)
+                             (quot 0x100000)) })
 
 
 (defn megabyte->byte
