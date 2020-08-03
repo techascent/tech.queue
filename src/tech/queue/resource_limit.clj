@@ -14,7 +14,7 @@ A resource map can contain many entries of keyword->integer.
 At manager creation time a similar map is provided indicating the initial state."
   (:require [com.stuartsierra.component :as c]
             [clojure.core.async :as async]
-            [taoensso.timbre :as log])
+            [clojure.tools.logging :as log])
   (:import [java.lang.management ManagementFactory]))
 
 

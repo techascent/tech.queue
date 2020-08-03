@@ -14,8 +14,9 @@
       temp-dir
       (let [queue-url (str "file://" temp-dir "/" (uuid/random-uuid-str))]
         (q/seq->queue! queue-url {} src-seq)
-        (is (set dest-seq)
-            (->> (q/pmap-queue queue-url 10 update-fn)
-                 ;;Take is important as the sequence never ends
-                 (take (count src-seq))
-                 set))))))
+        (is (= (set (map :value dest-seq))
+               (->> (q/pmap-queue queue-url 10 update-fn)
+                    ;;Take is important as the sequence never ends
+                    (take (count src-seq))
+                    (map :value)
+                    set)))))))

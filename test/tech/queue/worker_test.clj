@@ -7,7 +7,7 @@
             [tech.queue.filesystem :as qf]
             [clojure.core.async :as async]
             [tech.queue.resource-limit :as resource-limit]
-            [taoensso.timbre :as log])
+            [clojure.tools.logging  :as log])
   (:import [java.util UUID]))
 
 

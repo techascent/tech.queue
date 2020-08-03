@@ -6,7 +6,7 @@
             [tech.queue.time :as time]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.core.async :as async]
-            [taoensso.timbre :as log]
+            [clojure.tools.logging :as log]
             [tech.parallel :as parallel]))
 
 (def ^:dynamic *static-queue-options* {})
@@ -15,8 +15,9 @@
 (def ^:dynamic *url-parts->queue*
   (fn [url-parts options]
     (let [path (:path url-parts)
-          provider (q-proto/url-parts->provider url-parts
-                                                (merge *static-queue-options*  options))]
+          provider (q-proto/url-parts->provider
+                    url-parts
+                    (merge *static-queue-options*  options))]
       (q-proto/get-or-create-queue! provider
                                     (keyword (last path))
                                     (merge *static-queue-options* options)))))

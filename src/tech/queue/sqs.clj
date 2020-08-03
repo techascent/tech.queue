@@ -5,7 +5,7 @@
             [clojure.string :as s]
             [clojure.edn :as edn]
             [com.stuartsierra.component :as c]
-            [taoensso.timbre :as log]
+            [clojure.tools.logging :as log]
             [tech.queue.time :as time])
   (:import [java.util Date UUID]
            [com.amazonaws.services.sqs.model QueueDoesNotExistException]))

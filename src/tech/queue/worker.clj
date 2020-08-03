@@ -1,13 +1,13 @@
 (ns tech.queue.worker
   (:require [com.stuartsierra.component :as c]
             [clojure.core.async :as a]
-            [taoensso.timbre :as log]
+            [clojure.tools.logging :as log]
             [clojure.core.async.impl.protocols :as async-protocols]
             [tech.parallel :as parallel]
             [tech.queue.resource-limit :as resource-limit]
-            [tech.queue.logging :as logging]
             [tech.queue.protocols :as q]
             [tech.queue.time :as time]
+            [tech.queue.logging :as logging]
             [clojure.pprint :as pprint]))
 
 
