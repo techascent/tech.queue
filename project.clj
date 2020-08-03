@@ -1,4 +1,4 @@
-(defproject techascent/tech.queue "2.0"
+(defproject techascent/tech.queue "2.01-SNAPSHOT"
   :description "Queue abstraction with bindings at least to filesystem and amazon sqs."
   :url "http://github.com:tech-ascent/tech.queue"
   :license {:name "Eclipse Public License"
